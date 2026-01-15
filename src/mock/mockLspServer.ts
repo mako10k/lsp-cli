@@ -9,6 +9,7 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number | string; result?: any; erro
 
 let lastDidOpen: any = null;
 let lastDidChange: any = null;
+let initializeCount = 0;
 
 let serverReqSeq = 0;
 const pending = new Map<number | string, (res: JsonRpcResponse) => void>();
@@ -50,6 +51,7 @@ function respondError(id: number | string, message: string) {
 async function onRequest(req: JsonRpcRequest) {
   switch (req.method) {
     case "initialize":
+      initializeCount++;
       return respond(req.id, {
         capabilities: {
           // Prefer incremental so LspClient exercises didChange incremental.
@@ -157,6 +159,9 @@ async function onRequest(req: JsonRpcRequest) {
 
     case "mock/getLastDidChange":
       return respond(req.id, lastDidChange);
+
+    case "mock/getInitializeCount":
+      return respond(req.id, initializeCount);
 
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);

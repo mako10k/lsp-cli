@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { LspClient } from "./lsp/LspClient";
 import { getServerProfile } from "./servers";
@@ -1088,6 +1089,369 @@ program
       throw new Error("selected code action has neither edit nor executable command");
     }
   );
+
+function writeJsonl(value: unknown) {
+  process.stdout.write(JSON.stringify(value) + "\n");
+}
+
+function collectUrisFromWorkspaceEdit(edit: any): string[] {
+  const out = new Set<string>();
+
+  if (edit?.changes && typeof edit.changes === "object") {
+    for (const uri of Object.keys(edit.changes)) out.add(uri);
+  }
+
+  const dcs = Array.isArray(edit?.documentChanges) ? edit.documentChanges : [];
+  for (const dc of dcs) {
+    if (dc?.textDocument?.uri && Array.isArray(dc?.edits)) {
+      out.add(String(dc.textDocument.uri));
+      continue;
+    }
+    if (dc?.kind === "create" && typeof dc?.uri === "string") out.add(dc.uri);
+    if (dc?.kind === "delete" && typeof dc?.uri === "string") out.add(dc.uri);
+    if (dc?.kind === "rename") {
+      if (typeof dc?.oldUri === "string") out.add(dc.oldUri);
+      if (typeof dc?.newUri === "string") out.add(dc.newUri);
+    }
+  }
+
+  return [...out];
+}
+
+async function syncClientAfterWorkspaceEdit(client: LspClient, edit: any): Promise<void> {
+  for (const uri of collectUrisFromWorkspaceEdit(edit)) {
+    try {
+      const filePath = fileURLToPath(uri);
+      await client.changeTextDocument(filePath);
+    } catch {
+      // ignore non-file URIs
+    }
+  }
+}
+
+program
+  .command("batch")
+  .description("Run multiple requests in one LSP session (JSONL via stdin)")
+  .option("--apply", "allow applying edits to files")
+  .option("--continue-on-error", "keep going and emit {ok:false} on errors")
+  .option("--wait-mode <once|each>", "how to apply --wait-ms (default: each)", "each")
+  .action(async (cmdOpts?: { apply?: boolean; continueOnError?: boolean; waitMode?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    if (opts.stdin) throw new Error("batch reads JSONL from stdin; do not use --stdin");
+    if (opts.jq) throw new Error("batch does not support --jq");
+    if (opts.format !== "json") throw new Error("batch requires --format json");
+
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    const allowApply = !!cmdOpts?.apply;
+    const waitMode = String(cmdOpts?.waitMode ?? "each");
+
+    const client = new LspClient({ rootPath: root, server: profile, applyEdits: allowApply });
+    await client.start();
+
+    const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+    let waitedOnce = false;
+    const maybeWait = async () => {
+      const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+      if (waitMs <= 0) return;
+      if (waitMode === "once") {
+        if (waitedOnce) return;
+        waitedOnce = true;
+      }
+      await sleep(waitMs);
+    };
+
+    const handleError = async (req: any, e: unknown) => {
+      writeJsonl({ ok: false, id: req?.id, cmd: req?.cmd, error: String((e as any)?.message ?? e) });
+      if (!cmdOpts?.continueOnError) throw e;
+    };
+
+    try {
+      for await (const rawLine of rl) {
+        const line = String(rawLine ?? "").trim();
+        if (!line) continue;
+
+        let req: any;
+        try {
+          req = JSON.parse(line);
+        } catch (e) {
+          await handleError({ cmd: "<parse>" }, e);
+          continue;
+        }
+
+        const cmd = String(req?.cmd ?? "");
+
+        try {
+          if (cmd === "ping") {
+            writeJsonl({ ok: true, id: req?.id, cmd, result: { ok: true } });
+            continue;
+          }
+
+          if (cmd === "request") {
+            if (typeof req?.method !== "string") throw new Error("request requires method");
+            await maybeWait();
+            const res = await client.request(req.method, req.params);
+            writeJsonl({ ok: true, id: req?.id, cmd, method: req.method, result: res });
+            continue;
+          }
+
+          if (cmd === "notify") {
+            if (typeof req?.method !== "string") throw new Error("notify requires method");
+            client.notify(req.method, req.params);
+            writeJsonl({ ok: true, id: req?.id, cmd, method: req.method, result: { notified: true } });
+            continue;
+          }
+
+          const file = req?.file;
+          const hasFile = typeof file === "string" && file.length > 0;
+          const abs = hasFile ? path.resolve(file) : null;
+          const uri = abs ? pathToFileUri(abs) : null;
+
+          if (hasFile && abs && uri) {
+            await client.changeTextDocument(abs);
+          }
+
+          if (cmd === "symbols") {
+            if (!uri) throw new Error("symbols requires file");
+            await maybeWait();
+            const res = await client.request("textDocument/documentSymbol", { textDocument: { uri } });
+            writeJsonl({ ok: true, id: req?.id, cmd, result: res });
+            continue;
+          }
+
+          if (cmd === "references") {
+            if (!uri) throw new Error("references requires file");
+            await maybeWait();
+            const res = await client.request("textDocument/references", {
+              textDocument: { uri },
+              position: { line: Number(req.line), character: Number(req.col) },
+              context: { includeDeclaration: true }
+            });
+            writeJsonl({ ok: true, id: req?.id, cmd, result: res });
+            continue;
+          }
+
+          if (cmd === "definition" || cmd === "implementation" || cmd === "type-definition" || cmd === "hover" || cmd === "signature-help") {
+            if (!uri) throw new Error(`${cmd} requires file`);
+            await maybeWait();
+
+            const method =
+              cmd === "definition"
+                ? "textDocument/definition"
+                : cmd === "implementation"
+                  ? "textDocument/implementation"
+                  : cmd === "type-definition"
+                    ? "textDocument/typeDefinition"
+                    : cmd === "hover"
+                      ? "textDocument/hover"
+                      : "textDocument/signatureHelp";
+
+            const res = await client.request(method, {
+              textDocument: { uri },
+              position: { line: Number(req.line), character: Number(req.col) }
+            });
+
+            writeJsonl({ ok: true, id: req?.id, cmd, result: res });
+            continue;
+          }
+
+          if (cmd === "ws-symbols") {
+            await maybeWait();
+            const res = await client.request("workspace/symbol", { query: String(req?.query ?? "") });
+            writeJsonl({ ok: true, id: req?.id, cmd, result: res });
+            continue;
+          }
+
+          if (cmd === "rename") {
+            if (!uri) throw new Error("rename requires file");
+            if (typeof req?.newName !== "string") throw new Error("rename requires newName");
+            await maybeWait();
+
+            const edit = await client.request("textDocument/rename", {
+              textDocument: { uri },
+              position: { line: Number(req.line), character: Number(req.col) },
+              newName: req.newName
+            });
+
+            const wantApply = !!req.apply;
+            if (wantApply) {
+              if (!allowApply) throw new Error("apply requested but batch was not started with --apply");
+              await applyWorkspaceEdit(edit);
+              await syncClientAfterWorkspaceEdit(client, edit);
+              writeJsonl({ ok: true, id: req?.id, cmd, applied: true });
+              continue;
+            }
+
+            writeJsonl({ ok: true, id: req?.id, cmd, result: edit });
+            continue;
+          }
+
+          if (cmd === "delete-symbol") {
+            if (!uri) throw new Error("delete-symbol requires file");
+            if (typeof req?.symbolName !== "string") throw new Error("delete-symbol requires symbolName");
+
+            const res = await client.request("textDocument/documentSymbol", { textDocument: { uri } });
+            const wantKind = parseSymbolKind(typeof req?.kind === "string" ? req.kind : undefined);
+
+            const matches: Array<{ name: string; kind?: any; range?: any }> = [];
+            const addMatch = (name: any, kind: any, range: any) => {
+              if (String(name ?? "") !== req.symbolName) return;
+              if (wantKind != null && typeof kind === "number" && kind !== wantKind) return;
+              if (!range?.start || !range?.end) return;
+              matches.push({ name: String(name ?? ""), kind, range });
+            };
+
+            if (Array.isArray(res) && res.length > 0 && (res[0]?.location || res[0]?.name)) {
+              for (const si of res) addMatch(si?.name, si?.kind, si?.location?.range);
+            } else if (Array.isArray(res)) {
+              const walk = (ds: any) => {
+                addMatch(ds?.name, ds?.kind, ds?.range);
+                const children = Array.isArray(ds?.children) ? ds.children : [];
+                for (const c of children) walk(c);
+              };
+              for (const ds of res) walk(ds);
+            }
+
+            if (matches.length === 0) throw new Error(`no symbol matched: ${req.symbolName}`);
+
+            const idx = typeof req?.index === "number" ? req.index : matches.length === 1 ? 0 : undefined;
+            if (idx == null) {
+              writeJsonl({ ok: true, id: req?.id, cmd, matches });
+              continue;
+            }
+
+            const chosen = matches[idx];
+            if (!chosen) throw new Error(`no match at index ${idx}`);
+
+            const fs = await import("node:fs/promises");
+            const fileText = await fs.readFile(abs!, "utf8");
+            const whole = expandRangeToWholeLines(fileText, chosen.range);
+
+            const edit = {
+              changes: {
+                [uri]: [
+                  {
+                    range: whole,
+                    newText: ""
+                  }
+                ]
+              }
+            };
+
+            const wantApply = !!req.apply;
+            if (wantApply) {
+              if (!allowApply) throw new Error("apply requested but batch was not started with --apply");
+              await applyWorkspaceEdit(edit);
+              await syncClientAfterWorkspaceEdit(client, edit);
+              writeJsonl({ ok: true, id: req?.id, cmd, applied: true, index: idx });
+              continue;
+            }
+
+            writeJsonl({ ok: true, id: req?.id, cmd, dryRun: true, index: idx, edit });
+            continue;
+          }
+
+          if (cmd === "code-actions") {
+            if (!uri) throw new Error("code-actions requires file");
+            await maybeWait();
+
+            const actions = (await client.request("textDocument/codeAction", {
+              textDocument: { uri },
+              range: {
+                start: { line: Number(req.startLine), character: Number(req.startCol) },
+                end: { line: Number(req.endLine), character: Number(req.endCol) }
+              },
+              context: { diagnostics: [] }
+            })) as any[];
+
+            const summarized = (actions ?? []).map((a, index) => ({
+              index,
+              title: String(a?.title ?? ""),
+              kind: typeof a?.kind === "string" ? a.kind : undefined,
+              isPreferred: typeof a?.isPreferred === "boolean" ? a.isPreferred : undefined,
+              hasEdit: !!a?.edit,
+              hasCommand: !!a?.command
+            }));
+
+            const titleRe = typeof req?.titleRegex === "string" ? new RegExp(String(req.titleRegex)) : null;
+
+            const pickedIdx = (() => {
+              if (req?.index != null) return Number(req.index);
+
+              const hasSelector = !!(req?.kind || titleRe || req?.preferred || req?.first || req?.failIfMultiple);
+              if (!hasSelector) return undefined;
+
+              let candidates = summarized;
+
+              if (req?.kind) {
+                const prefix = String(req.kind);
+                candidates = candidates.filter((a) => (a.kind ?? "").startsWith(prefix));
+              }
+
+              if (titleRe) {
+                candidates = candidates.filter((a) => titleRe.test(a.title));
+              }
+
+              if (req?.preferred) {
+                const preferred = candidates.filter((a) => a.isPreferred);
+                if (preferred.length) candidates = preferred;
+              }
+
+              if (candidates.length === 0) throw new Error("no matching code actions");
+
+              if (candidates.length === 1) return candidates[0].index;
+              if (req?.first) return candidates[0].index;
+              if (req?.failIfMultiple) throw new Error(`multiple matching code actions (${candidates.length}); use first or index`);
+              throw new Error(`multiple matching code actions (${candidates.length}); use first or index`);
+            })();
+
+            if (pickedIdx == null) {
+              writeJsonl({ ok: true, id: req?.id, cmd, result: summarized });
+              continue;
+            }
+
+            const selected = actions?.[pickedIdx];
+            if (!selected) throw new Error(`no code action at index ${pickedIdx}`);
+
+            const wantApply = !!req.apply;
+            if (!wantApply) {
+              writeJsonl({ ok: true, id: req?.id, cmd, dryRun: true, index: pickedIdx, title: selected.title, kind: selected.kind });
+              continue;
+            }
+
+            if (!allowApply) throw new Error("apply requested but batch was not started with --apply");
+
+            if (selected.edit) {
+              await applyWorkspaceEdit(selected.edit);
+              await syncClientAfterWorkspaceEdit(client, selected.edit);
+              writeJsonl({ ok: true, id: req?.id, cmd, applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind });
+              continue;
+            }
+
+            const cmdObj = selected.command;
+            if (cmdObj && typeof cmdObj.command === "string") {
+              const res = await client.request("workspace/executeCommand", { command: cmdObj.command, arguments: cmdObj.arguments });
+              if (abs) await client.changeTextDocument(abs);
+              writeJsonl({ ok: true, id: req?.id, cmd, applied: true, via: "command", index: pickedIdx, title: selected.title, kind: selected.kind, result: res });
+              continue;
+            }
+
+            throw new Error("selected code action has neither edit nor executable command");
+          }
+
+          throw new Error(`unsupported cmd: ${cmd}`);
+        } catch (e) {
+          await handleError(req, e);
+        }
+      }
+    } finally {
+      await client.shutdown();
+      rl.close();
+    }
+  });
 
 (async () => {
   await program.parseAsync(process.argv);

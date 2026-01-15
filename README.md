@@ -67,6 +67,25 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 ws-
 
 - 変更適用はデフォルト dry-run で、`--apply` 指定時のみファイルを書き換えます。
 
+### Batch mode (JSONL)
+
+stdin から JSON Lines（1行=1リクエスト）を読み、同一LSPセッションで順に実行します。
+
+```bash
+cat <<'JSONL' | npx @mako10k/lsp-cli --root . --server typescript-language-server --format json batch
+{"cmd":"references","file":"src/index.ts","line":0,"col":0}
+{"cmd":"definition","file":"src/index.ts","line":0,"col":0}
+JSONL
+```
+
+編集/リファクタを適用する場合は `batch --apply` を付けます（安全のため明示指定が必要）:
+
+```bash
+cat <<'JSONL' | npx @mako10k/lsp-cli --root . --server typescript-language-server --format json batch --apply
+{"cmd":"rename","file":"src/index.ts","line":0,"col":0,"newName":"renamed","apply":true}
+JSONL
+```
+
 ### Structured edit (delete symbol)
 
 `documentSymbol` を使ってシンボル名からブロック単位で削除します（dry-run例）:
