@@ -756,7 +756,7 @@ program
         throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
       }
 
-      const client = new LspClient({ rootPath: root, server: profile });
+      const client = new LspClient({ rootPath: root, server: profile, applyEdits: !!cmdOpts?.apply });
       await client.start();
 
       const abs = path.resolve(file);

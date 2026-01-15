@@ -10,6 +10,27 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number | string; result?: any; erro
 let lastDidOpen: any = null;
 let lastDidChange: any = null;
 
+let serverReqSeq = 0;
+const pending = new Map<number | string, (res: JsonRpcResponse) => void>();
+
+function sendRequest(method: string, params?: any): Promise<any> {
+  const id = `s${++serverReqSeq}`;
+  writeMessage({ jsonrpc: "2.0", id, method, params });
+  return new Promise((resolve, reject) => {
+    pending.set(id, (res) => {
+      if (res.error) reject(new Error(res.error.message));
+      else resolve(res.result);
+    });
+  });
+}
+
+function onResponse(res: JsonRpcResponse) {
+  const cb = pending.get(res.id);
+  if (!cb) return;
+  pending.delete(res.id);
+  cb(res);
+}
+
 function writeMessage(msg: object) {
   const json = JSON.stringify(msg);
   const header = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n`;
@@ -26,7 +47,7 @@ function respondError(id: number | string, message: string) {
   writeMessage(res);
 }
 
-function onRequest(req: JsonRpcRequest) {
+async function onRequest(req: JsonRpcRequest) {
   switch (req.method) {
     case "initialize":
       return respond(req.id, {
@@ -73,6 +94,32 @@ function onRequest(req: JsonRpcRequest) {
           ]
         }
       });
+
+    case "workspace/executeCommand": {
+      if (req.params?.command === "mock/applyEdit") {
+        const arg0 = Array.isArray(req.params?.arguments) ? req.params.arguments[0] : null;
+        const uri = typeof arg0?.uri === "string" ? arg0.uri : "";
+        const newText = typeof arg0?.newText === "string" ? arg0.newText : "";
+
+        const res = await sendRequest("workspace/applyEdit", {
+          label: "mock/applyEdit",
+          edit: {
+            changes: {
+              [uri]: [
+                {
+                  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                  newText
+                }
+              ]
+            }
+          }
+        });
+
+        return respond(req.id, res);
+      }
+
+      return respond(req.id, null);
+    }
 
     // Helpers for tests
     case "mock/getLastDidOpen":
@@ -137,8 +184,10 @@ process.stdin.on("data", (chunk: Buffer) => {
       continue;
     }
 
-    if (msg && msg.method && Object.prototype.hasOwnProperty.call(msg, "id")) {
-      onRequest(msg as JsonRpcRequest);
+    if (msg && Object.prototype.hasOwnProperty.call(msg, "id") && !msg.method) {
+      onResponse(msg as JsonRpcResponse);
+    } else if (msg && msg.method && Object.prototype.hasOwnProperty.call(msg, "id")) {
+      void onRequest(msg as JsonRpcRequest);
     } else if (msg && msg.method) {
       onNotification(msg as JsonRpcNotification);
     }

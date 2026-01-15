@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node";
+import { applyWorkspaceEdit } from "./workspaceEdit";
 
 export type ServerProfile = {
   name: string;
@@ -23,6 +24,7 @@ type TextDocumentItem = {
 export class LspClient {
   private readonly rootPath: string;
   private readonly server: ServerProfile;
+  private readonly applyEdits: boolean;
   private proc: ChildProcessWithoutNullStreams | null = null;
   private conn: ReturnType<typeof createMessageConnection> | null = null;
 
@@ -30,9 +32,10 @@ export class LspClient {
   private textDocumentSyncKind: number | null = null;
   private readonly openedDocs = new Map<string, TextDocumentItem>();
 
-  constructor(opts: { rootPath: string; server: ServerProfile }) {
+  constructor(opts: { rootPath: string; server: ServerProfile; applyEdits?: boolean }) {
     this.rootPath = opts.rootPath;
     this.server = opts.server;
+    this.applyEdits = !!opts.applyEdits;
   }
 
   async start(): Promise<void> {
@@ -52,6 +55,18 @@ export class LspClient {
     const reader = new StreamMessageReader(this.proc.stdout);
     const writer = new StreamMessageWriter(this.proc.stdin);
     this.conn = createMessageConnection(reader, writer);
+
+    this.conn.onRequest("workspace/applyEdit", async (params: any) => {
+      if (!this.applyEdits) {
+        return { applied: false, failureReason: "client is in dry-run mode" };
+      }
+      try {
+        await applyWorkspaceEdit(params?.edit);
+        return { applied: true };
+      } catch (e) {
+        return { applied: false, failureReason: String((e as any)?.message ?? e) };
+      }
+    });
 
     this.conn.listen();
 
