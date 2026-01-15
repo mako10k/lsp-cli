@@ -8,13 +8,24 @@
 npm install
 npm run build
 
+# repo をローカルにCLIとして入れる（lsp-cli コマンドが生える）
+npm link
+
 # 疎通（rust-analyzerがPATHに必要）
 # rustupプロキシの場合は先に:
 #   rustup component add rust-analyzer
-node dist/cli.js --root . ping
+lsp-cli --root . ping
 
 # documentSymbol（line/colは0-based）
-node dist/cli.js --root . --format pretty symbols path/to/file.rs
+lsp-cli --root . --format pretty symbols path/to/file.rs
+```
+
+### (planned) npx
+
+公開後は以下で動かす想定です:
+
+```bash
+npx @mako10k/lsp-cli --root . ping
 ```
 
 ## Sample (for testing)
