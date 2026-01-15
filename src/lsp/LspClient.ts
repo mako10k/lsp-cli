@@ -93,8 +93,8 @@ export class LspClient {
     if (!this.conn || !this.proc) return;
 
     try {
-      await this.request("shutdown", null);
-      this.notify("exit", null);
+      await this.request("shutdown");
+      this.notify("exit");
     } finally {
       this.conn.dispose();
       this.conn = null;
@@ -120,14 +120,19 @@ export class LspClient {
     });
   }
 
-  request(method: string, params: unknown): Promise<any> {
+  request(method: string, params?: unknown): Promise<any> {
     if (!this.conn) throw new Error("LSP connection not started");
-    return this.conn.sendRequest(method, params as any);
+    if (params === undefined) return this.conn.sendRequest(method as any);
+    return this.conn.sendRequest(method as any, params as any);
   }
 
-  notify(method: string, params: unknown): void {
+  notify(method: string, params?: unknown): void {
     if (!this.conn) throw new Error("LSP connection not started");
-    this.conn.sendNotification(method, params as any);
+    if (params === undefined) {
+      this.conn.sendNotification(method as any);
+      return;
+    }
+    this.conn.sendNotification(method as any, params as any);
   }
 }
 
