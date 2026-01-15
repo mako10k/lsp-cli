@@ -928,6 +928,11 @@ program
   .argument("[endLine]", "0-based end line")
   .argument("[endCol]", "0-based end column")
   .option("--index <n>", "select action by index (0-based)")
+  .option("--kind <prefix>", "select by CodeAction.kind prefix")
+  .option("--title-regex <re>", "select by title regex")
+  .option("--preferred", "prefer isPreferred actions")
+  .option("--first", "pick first match when multiple")
+  .option("--fail-if-multiple", "fail when multiple matches")
   .option("--apply", "apply selected action (default is dry-run)")
   .action(
     async (
@@ -936,7 +941,15 @@ program
       startColArg?: string,
       endLineArg?: string,
       endColArg?: string,
-      cmdOpts?: { index?: string; apply?: boolean }
+      cmdOpts?: {
+        index?: string;
+        kind?: string;
+        titleRegex?: string;
+        preferred?: boolean;
+        first?: boolean;
+        failIfMultiple?: boolean;
+        apply?: boolean;
+      }
     ) => {
       const opts = program.opts() as GlobalOpts;
       const root = path.resolve(opts.root ?? process.cwd());
@@ -994,8 +1007,39 @@ program
         hasCommand: !!a?.command
       }));
 
-      const idx = cmdOpts?.index != null ? parseIntStrict(String(cmdOpts.index)) : undefined;
-      if (idx == null) {
+      const titleRe = cmdOpts?.titleRegex ? new RegExp(String(cmdOpts.titleRegex)) : null;
+
+      const pickedIdx = (() => {
+        if (cmdOpts?.index != null) return parseIntStrict(String(cmdOpts.index));
+
+        const hasSelector = !!(cmdOpts?.kind || titleRe || cmdOpts?.preferred || cmdOpts?.first || cmdOpts?.failIfMultiple);
+        if (!hasSelector) return undefined;
+
+        let candidates = summarized;
+
+        if (cmdOpts?.kind) {
+          const prefix = String(cmdOpts.kind);
+          candidates = candidates.filter((a) => (a.kind ?? "").startsWith(prefix));
+        }
+
+        if (titleRe) {
+          candidates = candidates.filter((a) => titleRe.test(a.title));
+        }
+
+        if (cmdOpts?.preferred) {
+          const preferred = candidates.filter((a) => a.isPreferred);
+          if (preferred.length) candidates = preferred;
+        }
+
+        if (candidates.length === 0) throw new Error("no matching code actions");
+
+        if (candidates.length === 1) return candidates[0].index;
+        if (cmdOpts?.first) return candidates[0].index;
+        if (cmdOpts?.failIfMultiple) throw new Error(`multiple matching code actions (${candidates.length}); use --first or --index`);
+        throw new Error(`multiple matching code actions (${candidates.length}); use --first or --index`);
+      })();
+
+      if (pickedIdx == null) {
         await client.shutdown();
         output(
           { format: opts.format, jq: opts.jq },
@@ -1004,10 +1048,10 @@ program
         return;
       }
 
-      const selected = actions?.[idx];
+      const selected = actions?.[pickedIdx];
       if (!selected) {
         await client.shutdown();
-        throw new Error(`no code action at index ${idx}`);
+        throw new Error(`no code action at index ${pickedIdx}`);
       }
 
       if (!cmdOpts?.apply) {
@@ -1015,8 +1059,8 @@ program
         output(
           { format: opts.format, jq: opts.jq },
           opts.format === "pretty" && !opts.jq
-            ? `DRY-RUN [${idx}] ${String(selected?.title ?? "")}`
-            : { dryRun: true, index: idx, action: selected }
+            ? `DRY-RUN [${pickedIdx}] ${String(selected?.title ?? "")}`
+            : { dryRun: true, index: pickedIdx, title: selected.title, kind: selected.kind }
         );
         return;
       }
@@ -1024,7 +1068,7 @@ program
       if (selected.edit) {
         await applyWorkspaceEdit(selected.edit);
         await client.shutdown();
-        output({ format: opts.format, jq: opts.jq }, { applied: true, index: idx, title: selected.title });
+        output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind });
         return;
       }
 
@@ -1036,7 +1080,7 @@ program
           arguments: cmd.arguments
         });
         await client.shutdown();
-        output({ format: opts.format, jq: opts.jq }, { executed: true, index: idx, title: selected.title, result: res });
+        output({ format: opts.format, jq: opts.jq }, { applied: true, via: "command", index: pickedIdx, title: selected.title, kind: selected.kind, result: res });
         return;
       }
 
