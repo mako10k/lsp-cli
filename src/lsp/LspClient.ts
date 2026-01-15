@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { once } from "node:events";
 import path from "node:path";
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node";
 
@@ -74,6 +75,9 @@ export class LspClient {
             textDocument: {
               documentSymbol: {},
               references: {},
+              definition: {},
+              implementation: {},
+              typeDefinition: {},
               rename: {},
               codeAction: {}
             }
@@ -93,15 +97,27 @@ export class LspClient {
   async shutdown(): Promise<void> {
     if (!this.conn || !this.proc) return;
 
+    const conn = this.conn;
+    const proc = this.proc;
+
     try {
       await this.request("shutdown");
-      this.notify("exit");
+
+      // LSP etiquette: send `exit` and allow the server to terminate itself.
+      // `exit` is a notification (no response), so we wait for process exit.
+      try {
+        this.notify("exit");
+      } catch {
+        // ignore
+      }
+
+      await Promise.race([once(proc, "exit"), new Promise((r) => setTimeout(r, 1000))]);
     } finally {
-      this.conn.dispose();
+      conn.dispose();
       this.conn = null;
-      const proc = this.proc;
+
       this.proc = null;
-      proc.kill();
+      if (proc.exitCode == null && !proc.killed) proc.kill();
     }
   }
 
