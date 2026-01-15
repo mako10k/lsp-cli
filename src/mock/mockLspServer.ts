@@ -56,7 +56,8 @@ async function onRequest(req: JsonRpcRequest) {
           textDocumentSync: { openClose: true, change: 2 },
           documentSymbolProvider: true,
           referencesProvider: true,
-          renameProvider: true
+          renameProvider: true,
+          codeActionProvider: true
         }
       });
 
@@ -94,6 +95,35 @@ async function onRequest(req: JsonRpcRequest) {
           ]
         }
       });
+
+    case "textDocument/codeAction": {
+      const uri = req.params?.textDocument?.uri;
+      return respond(req.id, [
+        {
+          title: "Mock edit action",
+          kind: "quickfix.mock.edit",
+          isPreferred: true,
+          edit: {
+            changes: {
+              [uri ?? ""]: [
+                {
+                  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                  newText: "E"
+                }
+              ]
+            }
+          }
+        },
+        {
+          title: "Mock command action",
+          kind: "refactor.mock.command",
+          command: {
+            command: "mock/applyEdit",
+            arguments: [{ uri, newText: "C" }]
+          }
+        }
+      ]);
+    }
 
     case "workspace/executeCommand": {
       if (req.params?.command === "mock/applyEdit") {
