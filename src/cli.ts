@@ -118,6 +118,38 @@ function formatSignatureHelpPretty(res: any): string {
     .join("\n\n");
 }
 
+function formatWorkspaceSymbolsPretty(res: any): string {
+  const items = Array.isArray(res) ? res : [];
+  if (items.length === 0) return "(no result)";
+
+  const uriToDisplay = (uri: string): string => {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return uri;
+    }
+  };
+
+  const kindToStr = (k: any) => (typeof k === "number" ? String(k) : k ? String(k) : "");
+
+  const getLoc = (s: any): any => s?.location ?? s?.symbol?.location;
+
+  return items
+    .map((s: any) => {
+      const name = String(s?.name ?? s?.symbol?.name ?? "");
+      const container = s?.containerName ? ` :: ${s.containerName}` : "";
+      const kind = kindToStr(s?.kind ?? s?.symbol?.kind);
+      const loc = getLoc(s);
+      if (loc?.uri && loc?.range?.start) {
+        const p = uriToDisplay(String(loc.uri));
+        const r = loc.range;
+        return `${name}${container}${kind ? ` (kind=${kind})` : ""} - ${p} ${r.start.line}:${r.start.character}`;
+      }
+      return `${name}${container}${kind ? ` (kind=${kind})` : ""}`;
+    })
+    .join("\n");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -518,6 +550,43 @@ program
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
+    );
+  });
+
+program
+  .command("ws-symbols")
+  .description("workspace/symbol")
+  .argument("[query]", "search query (or '-' to read from stdin)")
+  .option("--limit <n>", "limit results", "50")
+  .action(async (queryArg?: string, cmdOpts?: { limit?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, opts.serverCmd);
+
+    let query = queryArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { query: string };
+      query = params.query;
+    } else if (query === "-") {
+      query = (await readAllStdin()).trim();
+    }
+    if (query == null) query = "";
+
+    const client = new LspClient({ rootPath: root, server: profile });
+    await client.start();
+
+    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+    if (waitMs > 0) await sleep(waitMs);
+
+    const res = (await client.request("workspace/symbol", { query })) as any[];
+    await client.shutdown();
+
+    const limit = parseIntStrict(String(cmdOpts?.limit ?? "50"));
+    const sliced = Array.isArray(res) ? res.slice(0, Math.max(0, limit)) : res;
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatWorkspaceSymbolsPretty(sliced) : sliced
     );
   });
 

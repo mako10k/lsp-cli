@@ -70,7 +70,8 @@ export class LspClient {
           capabilities: {
             workspace: {
               workspaceEdit: { documentChanges: true },
-              executeCommand: {}
+              executeCommand: {},
+              symbol: {}
             },
             textDocument: {
               documentSymbol: {},

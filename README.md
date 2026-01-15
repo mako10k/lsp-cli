@@ -44,6 +44,9 @@ node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 hover s
 
 # signature help（add( の中あたり）
 node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 signature-help samples/rust-basic/src/main.rs 8 16
+
+# workspace symbols
+node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 ws-symbols add --limit 20
 ```
 
 ## Notes
