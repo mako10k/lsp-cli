@@ -56,6 +56,40 @@ node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 ws-symb
 - `<file>` は `-` を指定すると stdin からファイルパスを読みます。
 - `--stdin` を指定すると、stdinからJSONでコマンド入力を受け取ります。
 
+### Config file (server profiles)
+- デフォルトで以下を探索します:
+  - `<root>/.lsp-cli.json`
+  - `<root>/lsp-cli.config.json`
+- `--config <path>` で明示指定できます（相対パスは `<root>` からの相対として扱います）。
+
+例: `.lsp-cli.json`
+
+```json
+{
+  "servers": {
+    "rust-analyzer": {
+      "command": "rust-analyzer",
+      "args": [],
+      "defaultLanguageId": "rust",
+      "languageIdByExt": {
+        ".rs": "rust"
+      },
+      "initializationOptions": {
+        "cargo": {
+          "buildScripts": { "enable": true }
+        }
+      }
+    }
+  }
+}
+```
+
+使い方:
+
+```bash
+node dist/cli.js --root samples/rust-basic --config .lsp-cli.json ping
+```
+
 ### Examples (stdin / jq)
 
 ```bash
