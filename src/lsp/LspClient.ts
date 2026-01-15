@@ -29,6 +29,12 @@ export class LspClient {
       cwd: this.rootPath
     });
 
+    let stderr = "";
+    this.proc.stderr.on("data", (d) => {
+      if (stderr.length >= 8192) return;
+      stderr += d.toString("utf8");
+    });
+
     const reader = new StreamMessageReader(this.proc.stdout);
     const writer = new StreamMessageWriter(this.proc.stdin);
     this.conn = createMessageConnection(reader, writer);
@@ -37,23 +43,48 @@ export class LspClient {
 
     const rootUri = pathToFileUri(this.rootPath);
 
-    await this.request("initialize", {
-      processId: process.pid,
-      rootUri,
-      workspaceFolders: [{ uri: rootUri, name: path.basename(this.rootPath) }],
-      capabilities: {
-        workspace: {
-          workspaceEdit: { documentChanges: true }
-        },
-        textDocument: {
-          documentSymbol: {},
-          references: {},
-          rename: {},
-          codeAction: {}
-        }
-      },
-      initializationOptions: this.server.initializationOptions
+    const proc = this.proc;
+
+    let rejectExit: ((e: unknown) => void) | null = null;
+    const exitPromise: Promise<never> = new Promise((_, reject) => {
+      rejectExit = reject;
     });
+
+    const handleExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      const extra = stderr.trim() ? `\n${stderr.trimEnd()}` : "";
+      rejectExit?.(new Error(`LSP server exited before initialize (code=${code} signal=${signal})${extra}`));
+    };
+
+    const handleError = (e: unknown) => rejectExit?.(e);
+
+    proc.once("exit", handleExit);
+    proc.once("error", handleError);
+
+    try {
+      await Promise.race([
+        this.request("initialize", {
+          processId: process.pid,
+          rootUri,
+          workspaceFolders: [{ uri: rootUri, name: path.basename(this.rootPath) }],
+          capabilities: {
+            workspace: {
+              workspaceEdit: { documentChanges: true }
+            },
+            textDocument: {
+              documentSymbol: {},
+              references: {},
+              rename: {},
+              codeAction: {}
+            }
+          },
+          initializationOptions: this.server.initializationOptions
+        }),
+        exitPromise
+      ]);
+    } finally {
+      proc.off("exit", handleExit);
+      proc.off("error", handleError);
+    }
 
     this.notify("initialized", {});
   }

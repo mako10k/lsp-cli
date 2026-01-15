@@ -67,6 +67,10 @@
 - `lsp-cli --server rust-analyzer --root . <subcommand> ...`
 - サーバ差し替えの基本は `--server` と `--server-cmd`（上書き）で実現
   - 例: `lsp-cli --server rust-analyzer --server-cmd "rust-analyzer" ping`
+- パイプ連携のため、入力/出力の補助を持つ
+  - 入力: `<file>` に `-` を指定するとstdinからファイルパスを読む
+  - 入力: `--stdin` でstdinからJSONを読んでコマンド引数を与える
+  - 出力: `--jq '<filter>'` でJSON出力を `jq` に通して抽出/整形できる（`jq` がPATHに必要）
 
 ## 7. 合意事項（2026-01-15）
 - 実装言語: **Node.js + TypeScript**（LSP/JSON-RPC周りのSDKが充実しているため。例: `vscode-jsonrpc`）
