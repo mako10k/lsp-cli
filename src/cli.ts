@@ -50,20 +50,26 @@ function formatCodeActionsPretty(items: Array<{ index: number; title: string; ki
     .join("\n");
 }
 
+function uriToDisplay(uri: string): string {
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    return uri;
+  }
+}
+
+function rangeToStr(r: any): string {
+  return `${r.start.line}:${r.start.character} -> ${r.end.line}:${r.end.character}`;
+}
+
+function kindToStr(k: any): string {
+  return typeof k === "number" ? String(k) : k ? String(k) : "";
+}
+
 function formatLocationsPretty(res: any): string {
   if (!res) return "(no result)";
   const arr = Array.isArray(res) ? res : [res];
   if (arr.length === 0) return "(no result)";
-
-  const uriToDisplay = (uri: string): string => {
-    try {
-      return fileURLToPath(uri);
-    } catch {
-      return uri;
-    }
-  };
-
-  const rangeToStr = (r: any) => `${r.start.line}:${r.start.character} -> ${r.end.line}:${r.end.character}`;
 
   return arr
     .map((loc: any) => {
@@ -123,16 +129,6 @@ function formatWorkspaceSymbolsPretty(res: any): string {
   const items = Array.isArray(res) ? res : [];
   if (items.length === 0) return "(no result)";
 
-  const uriToDisplay = (uri: string): string => {
-    try {
-      return fileURLToPath(uri);
-    } catch {
-      return uri;
-    }
-  };
-
-  const kindToStr = (k: any) => (typeof k === "number" ? String(k) : k ? String(k) : "");
-
   const getLoc = (s: any): any => s?.location ?? s?.symbol?.location;
 
   return items
@@ -144,11 +140,50 @@ function formatWorkspaceSymbolsPretty(res: any): string {
       if (loc?.uri && loc?.range?.start) {
         const p = uriToDisplay(String(loc.uri));
         const r = loc.range;
-        return `${name}${container}${kind ? ` (kind=${kind})` : ""} - ${p} ${r.start.line}:${r.start.character}`;
+        return `${name}${container}${kind ? ` (kind=${kind})` : ""} - ${p} ${rangeToStr(r)}`;
       }
       return `${name}${container}${kind ? ` (kind=${kind})` : ""}`;
     })
     .join("\n");
+}
+
+function formatDocumentSymbolsPretty(res: any, filePath?: string): string {
+  const items = Array.isArray(res) ? res : [];
+  if (items.length === 0) return "(no result)";
+
+  const isSymbolInformation = items.some((x: any) => x?.location?.uri);
+  if (isSymbolInformation) {
+    return items
+      .map((s: any) => {
+        const name = String(s?.name ?? "");
+        const container = s?.containerName ? ` :: ${s.containerName}` : "";
+        const kind = kindToStr(s?.kind);
+        const loc = s?.location;
+        if (loc?.uri && loc?.range) {
+          return `${name}${container}${kind ? ` (kind=${kind})` : ""} - ${uriToDisplay(String(loc.uri))} ${rangeToStr(loc.range)}`;
+        }
+        return `${name}${container}${kind ? ` (kind=${kind})` : ""}`;
+      })
+      .join("\n");
+  }
+
+  const lines: string[] = [];
+  if (filePath) lines.push(filePath);
+
+  const walk = (ds: any, depth: number) => {
+    const indent = "  ".repeat(depth);
+    const name = String(ds?.name ?? "");
+    const detail = ds?.detail ? ` : ${String(ds.detail)}` : "";
+    const kind = kindToStr(ds?.kind);
+    const r = ds?.range;
+    const rangeStr = r?.start && r?.end ? ` - ${rangeToStr(r)}` : "";
+    lines.push(`${indent}${name}${detail}${kind ? ` (kind=${kind})` : ""}${rangeStr}`);
+    const children = Array.isArray(ds?.children) ? ds.children : [];
+    for (const c of children) walk(c, depth + 1);
+  };
+
+  for (const ds of items) walk(ds, 0);
+  return lines.join("\n");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -257,7 +292,10 @@ program
     });
 
     await client.shutdown();
-    output({ format: opts.format, jq: opts.jq }, res);
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatDocumentSymbolsPretty(res, abs) : res
+    );
   });
 
 program
@@ -302,7 +340,10 @@ program
     });
 
     await client.shutdown();
-    output({ format: opts.format, jq: opts.jq }, res);
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
+    );
   });
 
 program
