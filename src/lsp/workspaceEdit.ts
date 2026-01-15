@@ -44,20 +44,28 @@ export function formatWorkspaceEditPretty(edit: WorkspaceEdit): string {
   const perFile = collectEdits(edit);
   const lines: string[] = [];
 
+  const uriToDisplay = (uri: string): string => {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return uri;
+    }
+  };
+
   if (edit.documentChanges) {
     for (const dc of edit.documentChanges) {
       if ((dc as any)?.kind === "create" && typeof (dc as any)?.uri === "string") {
-        lines.push(`create ${(dc as any).uri}`);
+        lines.push(`create ${uriToDisplay((dc as any).uri)}`);
       } else if ((dc as any)?.kind === "rename" && typeof (dc as any)?.oldUri === "string" && typeof (dc as any)?.newUri === "string") {
-        lines.push(`rename ${(dc as any).oldUri} -> ${(dc as any).newUri}`);
+        lines.push(`rename ${uriToDisplay((dc as any).oldUri)} -> ${uriToDisplay((dc as any).newUri)}`);
       } else if ((dc as any)?.kind === "delete" && typeof (dc as any)?.uri === "string") {
-        lines.push(`delete ${(dc as any).uri}`);
+        lines.push(`delete ${uriToDisplay((dc as any).uri)}`);
       }
     }
   }
 
   for (const [uri, edits] of perFile.entries()) {
-    lines.push(`${uri} (${edits.length} edits)`);
+    lines.push(`${uriToDisplay(uri)} (${edits.length} edits)`);
     for (const e of edits) {
       lines.push(
         `  [${e.range.start.line}:${e.range.start.character} -> ${e.range.end.line}:${e.range.end.character}] ${JSON.stringify(
