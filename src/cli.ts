@@ -14,6 +14,7 @@ type OutputFormat = "json" | "pretty";
 type GlobalOpts = {
   server: string;
   serverCmd?: string;
+  config?: string;
   root?: string;
   format: OutputFormat;
   stdin?: boolean;
@@ -188,6 +189,7 @@ program
   .description("Lightweight CLI for driving LSP servers (MVP: rust-analyzer)")
   .option("--server <name>", "server profile name", "rust-analyzer")
   .option("--server-cmd <cmd>", "override server command (e.g. 'rust-analyzer')")
+  .option("--config <path>", "config file path (default: <root>/.lsp-cli.json or <root>/lsp-cli.config.json)")
   .option("--root <path>", "workspace root (default: cwd)")
   .option("--format <json|pretty>", "output format", "json")
   .option("--stdin", "read command input params from stdin as JSON")
@@ -217,7 +219,7 @@ program
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     const client = new LspClient({ rootPath: root, server: profile });
     await client.start();
@@ -233,7 +235,7 @@ program
   .action(async (fileArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     if (opts.stdin) {
@@ -267,7 +269,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -312,7 +314,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -362,7 +364,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -412,7 +414,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -462,7 +464,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -512,7 +514,7 @@ program
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     let line = lineArg;
@@ -561,7 +563,7 @@ program
   .action(async (queryArg?: string, cmdOpts?: { limit?: string }) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, opts.serverCmd);
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let query = queryArg;
     if (opts.stdin) {
@@ -609,7 +611,7 @@ program
     ) => {
       const opts = program.opts() as GlobalOpts;
       const root = path.resolve(opts.root ?? process.cwd());
-      const profile = getServerProfile(opts.server, opts.serverCmd);
+      const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
       let file = fileArg;
       let line = lineArg;
@@ -684,7 +686,7 @@ program
     ) => {
       const opts = program.opts() as GlobalOpts;
       const root = path.resolve(opts.root ?? process.cwd());
-      const profile = getServerProfile(opts.server, opts.serverCmd);
+      const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
       let file = fileArg;
       let startLine = startLineArg;
