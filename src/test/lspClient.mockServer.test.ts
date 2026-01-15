@@ -67,3 +67,39 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
 
   await client.shutdown();
 });
+
+test("LspClient handles workspace/applyEdit initiated by server", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-mock-"));
+  const file = path.join(root, "b.txt");
+  await fs.writeFile(file, "hello\n", "utf8");
+
+  const serverScript = path.resolve(__dirname, "../mock/mockLspServer.js");
+
+  const client = new LspClient({
+    rootPath: root,
+    applyEdits: true,
+    server: {
+      name: "mock",
+      command: process.execPath,
+      args: [serverScript],
+      languageIdForPath: () => "plaintext"
+    }
+  });
+
+  await client.start();
+  await client.openTextDocument(file);
+
+  const didOpen = await client.request("mock/getLastDidOpen");
+  const uri = didOpen?.textDocument?.uri;
+  assert.equal(typeof uri, "string");
+
+  await client.request("workspace/executeCommand", {
+    command: "mock/applyEdit",
+    arguments: [{ uri, newText: "Z" }]
+  });
+
+  const updated = await fs.readFile(file, "utf8");
+  assert.equal(updated, "Zhello\n");
+
+  await client.shutdown();
+});

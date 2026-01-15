@@ -62,6 +62,7 @@ node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 ws-symb
 
 ## Notes
 - 位置指定 (line, col) は **0-based**（LSP準拠）です。
+- `--server typescript-language-server` を指定すると `npx -y typescript-language-server --stdio` で起動します（TypeScriptはワークスペース側に必要）。
 - 変更適用はデフォルト `--dry-run` で、`--apply` 指定時のみファイルを書き換えます。
 - `--jq '<filter>'` を付けるとJSON出力を `jq` に通して整形/抽出できます（`jq` がPATHに必要）。
 - `<file>` は `-` を指定すると stdin からファイルパスを読みます。

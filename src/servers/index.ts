@@ -1,5 +1,6 @@
 import path from "node:path";
 import { rustAnalyzerProfile } from "./rustAnalyzer";
+import { typescriptLanguageServerProfile } from "./typescriptLanguageServer";
 import type { ServerProfile } from "../lsp/LspClient";
 import { loadConfigFromDisk } from "./config";
 
@@ -34,6 +35,11 @@ export function getServerProfile(
   switch (name) {
     case "rust-analyzer": {
       const base = rustAnalyzerProfile();
+      if (!overrideCmd) return base;
+      return { ...base, command: overrideCmd };
+    }
+    case "typescript-language-server": {
+      const base = typescriptLanguageServerProfile();
       if (!overrideCmd) return base;
       return { ...base, command: overrideCmd };
     }
