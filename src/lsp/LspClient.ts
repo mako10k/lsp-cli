@@ -68,7 +68,8 @@ export class LspClient {
           workspaceFolders: [{ uri: rootUri, name: path.basename(this.rootPath) }],
           capabilities: {
             workspace: {
-              workspaceEdit: { documentChanges: true }
+              workspaceEdit: { documentChanges: true },
+              executeCommand: {}
             },
             textDocument: {
               documentSymbol: {},

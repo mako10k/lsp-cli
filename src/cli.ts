@@ -33,6 +33,20 @@ function parseIntStrict(v: string): number {
   return Number.parseInt(v, 10);
 }
 
+function formatCodeActionsPretty(items: Array<{ index: number; title: string; kind?: string; isPreferred?: boolean; hasEdit: boolean; hasCommand: boolean }>): string {
+  if (items.length === 0) return "(no code actions)";
+  return items
+    .map((a) => {
+      const flags: string[] = [];
+      if (a.kind) flags.push(a.kind);
+      if (a.isPreferred) flags.push("preferred");
+      if (a.hasEdit) flags.push("edit");
+      if (a.hasCommand) flags.push("command");
+      return `[${a.index}] ${a.title}${flags.length ? ` (${flags.join(", ")})` : ""}`;
+    })
+    .join("\n");
+}
+
 function output(opts: { format: OutputFormat; jq?: string }, value: unknown) {
   if (opts.jq) {
     const input = JSON.stringify(value);
@@ -247,6 +261,132 @@ program
         { format: opts.format, jq: opts.jq },
         opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit
       );
+    }
+  );
+
+program
+  .command("code-actions")
+  .description("textDocument/codeAction (list; optional apply)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[startLine]", "0-based start line")
+  .argument("[startCol]", "0-based start column")
+  .argument("[endLine]", "0-based end line")
+  .argument("[endCol]", "0-based end column")
+  .option("--index <n>", "select action by index (0-based)")
+  .option("--apply", "apply selected action (default is dry-run)")
+  .action(
+    async (
+      fileArg?: string,
+      startLineArg?: string,
+      startColArg?: string,
+      endLineArg?: string,
+      endColArg?: string,
+      cmdOpts?: { index?: string; apply?: boolean }
+    ) => {
+      const opts = program.opts() as GlobalOpts;
+      const root = path.resolve(opts.root ?? process.cwd());
+      const profile = getServerProfile(opts.server, opts.serverCmd);
+
+      let file = fileArg;
+      let startLine = startLineArg;
+      let startCol = startColArg;
+      let endLine = endLineArg;
+      let endCol = endColArg;
+
+      if (opts.stdin) {
+        const params = JSON.parse(await readAllStdin()) as {
+          file: string;
+          startLine: number;
+          startCol: number;
+          endLine: number;
+          endCol: number;
+        };
+        file = params.file;
+        startLine = String(params.startLine);
+        startCol = String(params.startCol);
+        endLine = String(params.endLine);
+        endCol = String(params.endCol);
+      } else if (file === "-") {
+        file = (await readAllStdin()).trim();
+      }
+
+      if (!file || startLine == null || startCol == null || endLine == null || endCol == null) {
+        throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
+      }
+
+      const client = new LspClient({ rootPath: root, server: profile });
+      await client.start();
+
+      const abs = path.resolve(file);
+      const uri = pathToFileUri(abs);
+      await client.openTextDocument(abs);
+
+      const actions = (await client.request("textDocument/codeAction", {
+        textDocument: { uri },
+        range: {
+          start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
+          end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+        },
+        context: { diagnostics: [] }
+      })) as any[];
+
+      const summarized = (actions ?? []).map((a, index) => ({
+        index,
+        title: String(a?.title ?? ""),
+        kind: typeof a?.kind === "string" ? a.kind : undefined,
+        isPreferred: typeof a?.isPreferred === "boolean" ? a.isPreferred : undefined,
+        hasEdit: !!a?.edit,
+        hasCommand: !!a?.command
+      }));
+
+      const idx = cmdOpts?.index != null ? parseIntStrict(String(cmdOpts.index)) : undefined;
+      if (idx == null) {
+        await client.shutdown();
+        output(
+          { format: opts.format, jq: opts.jq },
+          opts.format === "pretty" && !opts.jq ? formatCodeActionsPretty(summarized) : summarized
+        );
+        return;
+      }
+
+      const selected = actions?.[idx];
+      if (!selected) {
+        await client.shutdown();
+        throw new Error(`no code action at index ${idx}`);
+      }
+
+      if (!cmdOpts?.apply) {
+        await client.shutdown();
+        output(
+          { format: opts.format, jq: opts.jq },
+          opts.format === "pretty" && !opts.jq
+            ? `DRY-RUN [${idx}] ${String(selected?.title ?? "")}`
+            : { dryRun: true, index: idx, action: selected }
+        );
+        return;
+      }
+
+      if (selected.edit) {
+        await applyWorkspaceEdit(selected.edit);
+        await client.shutdown();
+        output({ format: opts.format, jq: opts.jq }, { applied: true, index: idx, title: selected.title });
+        return;
+      }
+
+      // LSP allows returning Command objects (or CodeAction.command).
+      const cmd = selected.command;
+      if (cmd && typeof cmd.command === "string") {
+        const res = await client.request("workspace/executeCommand", {
+          command: cmd.command,
+          arguments: cmd.arguments
+        });
+        await client.shutdown();
+        output({ format: opts.format, jq: opts.jq }, { executed: true, index: idx, title: selected.title, result: res });
+        return;
+      }
+
+      await client.shutdown();
+      throw new Error("selected code action has neither edit nor executable command");
     }
   );
 
