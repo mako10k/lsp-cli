@@ -78,6 +78,8 @@ export class LspClient {
               definition: {},
               implementation: {},
               typeDefinition: {},
+              hover: {},
+              signatureHelp: {},
               rename: {},
               codeAction: {}
             }
