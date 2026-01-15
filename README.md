@@ -67,7 +67,17 @@ node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 ws-symb
   ```bash
   npx -y typescript-language-server --stdio
   ```
-- 変更適用はデフォルト `--dry-run` で、`--apply` 指定時のみファイルを書き換えます。
+
+- 変更適用はデフォルト dry-run で、`--apply` 指定時のみファイルを書き換えます。
+
+### Structured edit (delete symbol)
+
+`documentSymbol` を使ってシンボル名からブロック単位で削除します（dry-run例）:
+
+```bash
+npx @mako10k/lsp-cli --server typescript-language-server --root . --format pretty \
+  delete-symbol src/servers/typescriptLanguageServer.ts typescriptLanguageServerProfile
+```
 - `--jq '<filter>'` を付けるとJSON出力を `jq` に通して整形/抽出できます（`jq` がPATHに必要）。
 - `<file>` は `-` を指定すると stdin からファイルパスを読みます。
 - `--stdin` を指定すると、stdinからJSONでコマンド入力を受け取ります。

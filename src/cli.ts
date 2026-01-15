@@ -66,6 +66,104 @@ function kindToStr(k: any): string {
   return typeof k === "number" ? String(k) : k ? String(k) : "";
 }
 
+function parseSymbolKind(s?: string): number | undefined {
+  if (!s) return undefined;
+  switch (s.toLowerCase()) {
+    case "file":
+      return 1;
+    case "module":
+      return 2;
+    case "namespace":
+      return 3;
+    case "package":
+      return 4;
+    case "class":
+      return 5;
+    case "method":
+      return 6;
+    case "property":
+      return 7;
+    case "field":
+      return 8;
+    case "constructor":
+      return 9;
+    case "enum":
+      return 10;
+    case "interface":
+      return 11;
+    case "function":
+      return 12;
+    case "variable":
+      return 13;
+    case "constant":
+      return 14;
+    case "string":
+      return 15;
+    case "number":
+      return 16;
+    case "boolean":
+      return 17;
+    case "array":
+      return 18;
+    case "object":
+      return 19;
+    case "key":
+      return 20;
+    case "null":
+      return 21;
+    case "enummember":
+    case "enum-member":
+      return 22;
+    case "struct":
+      return 23;
+    case "event":
+      return 24;
+    case "operator":
+      return 25;
+    case "typeparameter":
+    case "type-parameter":
+      return 26;
+    default:
+      return undefined;
+  }
+}
+
+function splitLinesKeepEol(text: string): string[] {
+  const lines: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const nl = text.indexOf("\n", i);
+    if (nl === -1) {
+      lines.push(text.slice(i));
+      return lines;
+    }
+    lines.push(text.slice(i, nl + 1));
+    i = nl + 1;
+  }
+  if (text.length === 0) return [""];
+  return lines;
+}
+
+function lineLengthWithoutEol(lineWithEol: string): number {
+  if (lineWithEol.endsWith("\r\n")) return lineWithEol.length - 2;
+  if (lineWithEol.endsWith("\n")) return lineWithEol.length - 1;
+  return lineWithEol.length;
+}
+
+function expandRangeToWholeLines(fileText: string, r: any): any {
+  const lines = splitLinesKeepEol(fileText);
+  const startLine = Math.max(0, Math.min(r.start.line, Math.max(0, lines.length - 1)));
+  const endLine = Math.max(0, Math.min(r.end.line, Math.max(0, lines.length - 1)));
+
+  const start = { line: startLine, character: 0 };
+
+  if (endLine + 1 < lines.length) {
+    return { start, end: { line: endLine + 1, character: 0 } };
+  }
+
+  return { start, end: { line: endLine, character: lineLengthWithoutEol(lines[endLine] ?? "") } };
+}
+
 function formatLocationsPretty(res: any): string {
   if (!res) return "(no result)";
   const arr = Array.isArray(res) ? res : [res];
@@ -630,6 +728,121 @@ program
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatWorkspaceSymbolsPretty(sliced) : sliced
+    );
+  });
+
+program
+  .command("delete-symbol")
+  .description("delete a symbol/block by name using documentSymbol")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[symbolName]", "symbol name")
+  .option("--kind <kind>", "filter by symbol kind (e.g. function, class)")
+  .option("--index <n>", "select match by index (0-based)")
+  .option("--apply", "apply edit to files")
+  .action(async (fileArg?: string, symbolNameArg?: string, cmdOpts?: { kind?: string; index?: string; apply?: boolean }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let symbolName = symbolNameArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; symbolName: string; kind?: string; index?: number };
+      file = params.file;
+      symbolName = params.symbolName;
+      if (params.kind != null) cmdOpts = { ...(cmdOpts ?? {}), kind: String(params.kind) };
+      if (typeof params.index === "number") cmdOpts = { ...(cmdOpts ?? {}), index: String(params.index) };
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || !symbolName) throw new Error("file/symbolName are required (or use --stdin)");
+
+    const client = new LspClient({ rootPath: root, server: profile });
+    await client.start();
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    await client.openTextDocument(abs);
+
+    const res = await client.request("textDocument/documentSymbol", { textDocument: { uri } });
+
+    const wantKind = parseSymbolKind(cmdOpts?.kind);
+
+    const matches: Array<{ name: string; kind?: any; range?: any }> = [];
+
+    const addMatch = (name: any, kind: any, range: any) => {
+      if (String(name ?? "") !== symbolName) return;
+      if (wantKind != null && typeof kind === "number" && kind !== wantKind) return;
+      if (!range?.start || !range?.end) return;
+      matches.push({ name: String(name ?? ""), kind, range });
+    };
+
+    if (Array.isArray(res) && res.length > 0 && (res[0]?.location || res[0]?.name)) {
+      // SymbolInformation[]
+      for (const si of res) addMatch(si?.name, si?.kind, si?.location?.range);
+    } else if (Array.isArray(res)) {
+      // DocumentSymbol[]
+      const walk = (ds: any) => {
+        addMatch(ds?.name, ds?.kind, ds?.range);
+        const children = Array.isArray(ds?.children) ? ds.children : [];
+        for (const c of children) walk(c);
+      };
+      for (const ds of res) walk(ds);
+    }
+
+    if (matches.length === 0) {
+      await client.shutdown();
+      throw new Error(`no symbol matched: ${symbolName}`);
+    }
+
+    const idx = cmdOpts?.index != null ? parseIntStrict(String(cmdOpts.index)) : matches.length === 1 ? 0 : undefined;
+    if (idx == null) {
+      await client.shutdown();
+      output(
+        { format: opts.format, jq: opts.jq },
+        opts.format === "pretty" && !opts.jq
+          ? matches
+              .map((m, i) => `[${i}] ${m.name}${m.kind != null ? ` (kind=${kindToStr(m.kind)})` : ""} ${rangeToStr(m.range)}`)
+              .join("\n")
+          : { matches }
+      );
+      return;
+    }
+
+    const chosen = matches[idx];
+    if (!chosen) {
+      await client.shutdown();
+      throw new Error(`no match at index ${idx}`);
+    }
+
+    const fs = await import("node:fs/promises");
+    const fileText = await fs.readFile(abs, "utf8");
+    const whole = expandRangeToWholeLines(fileText, chosen.range);
+
+    const edit = {
+      changes: {
+        [uri]: [
+          {
+            range: whole,
+            newText: ""
+          }
+        ]
+      }
+    };
+
+    if (cmdOpts?.apply) {
+      await applyWorkspaceEdit(edit);
+      await client.shutdown();
+      output({ format: opts.format, jq: opts.jq }, { applied: true, index: idx, symbolName });
+      return;
+    }
+
+    await client.shutdown();
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : { dryRun: true, index: idx, symbolName, edit }
     );
   });
 
