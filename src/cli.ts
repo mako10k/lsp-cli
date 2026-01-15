@@ -77,6 +77,47 @@ function formatLocationsPretty(res: any): string {
     .join("\n");
 }
 
+function formatMarkedString(ms: any): string {
+  if (ms == null) return "";
+  if (typeof ms === "string") return ms;
+  if (typeof ms === "object" && typeof ms.value === "string") return ms.value;
+  return JSON.stringify(ms);
+}
+
+function formatHoverPretty(res: any): string {
+  if (!res) return "(no result)";
+  const c = res?.contents;
+  if (!c) return "(no result)";
+
+  if (Array.isArray(c)) {
+    const parts = c.map((x) => formatMarkedString(x)).filter(Boolean);
+    return parts.length ? parts.join("\n---\n") : "(no result)";
+  }
+
+  if (typeof c === "object" && typeof c.value === "string") {
+    return c.value;
+  }
+
+  return formatMarkedString(c) || "(no result)";
+}
+
+function formatSignatureHelpPretty(res: any): string {
+  const sigs = res?.signatures;
+  if (!Array.isArray(sigs) || sigs.length === 0) return "(no result)";
+
+  const activeSig = typeof res?.activeSignature === "number" ? res.activeSignature : 0;
+  const activeParam = typeof res?.activeParameter === "number" ? res.activeParameter : undefined;
+
+  return sigs
+    .map((s: any, idx: number) => {
+      const header = `${idx === activeSig ? "*" : " "} ${String(s?.label ?? "")}`;
+      const doc = s?.documentation ? formatMarkedString(s.documentation) : "";
+      const ap = idx === activeSig && activeParam != null ? `\n  activeParameter=${activeParam}` : "";
+      return doc ? `${header}${ap}\n  ${doc}` : `${header}${ap}`;
+    })
+    .join("\n\n");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -377,6 +418,106 @@ program
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
+    );
+  });
+
+program
+  .command("hover")
+  .description("textDocument/hover")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+
+    const client = new LspClient({ rootPath: root, server: profile });
+    await client.start();
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    await client.openTextDocument(abs);
+
+    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+    if (waitMs > 0) await sleep(waitMs);
+
+    const res = await client.request("textDocument/hover", {
+      textDocument: { uri },
+      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    });
+
+    await client.shutdown();
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatHoverPretty(res) : res
+    );
+  });
+
+program
+  .command("signature-help")
+  .description("textDocument/signatureHelp")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+
+    const client = new LspClient({ rootPath: root, server: profile });
+    await client.start();
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    await client.openTextDocument(abs);
+
+    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+    if (waitMs > 0) await sleep(waitMs);
+
+    const res = await client.request("textDocument/signatureHelp", {
+      textDocument: { uri },
+      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    });
+
+    await client.shutdown();
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
     );
   });
 

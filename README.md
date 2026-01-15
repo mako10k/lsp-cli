@@ -38,6 +38,12 @@ node dist/cli.js --root samples/rust-basic --format json references samples/rust
 
 # definition（rust-analyzerの初期化直後は結果が空になることがあるのでwait推奨）
 node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 definition samples/rust-basic/src/main.rs 8 12
+
+# hover
+node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 hover samples/rust-basic/src/main.rs 8 12
+
+# signature help（add( の中あたり）
+node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 signature-help samples/rust-basic/src/main.rs 8 16
 ```
 
 ## Notes
