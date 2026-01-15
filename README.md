@@ -11,10 +11,10 @@ npm run build
 # 疎通（rust-analyzerがPATHに必要）
 # rustupプロキシの場合は先に:
 #   rustup component add rust-analyzer
-node dist/cli.js ping --root .
+node dist/cli.js --root . ping
 
 # documentSymbol（line/colは0-based）
-node dist/cli.js symbols path/to/file.rs --root . --format pretty
+node dist/cli.js --root . --format pretty symbols path/to/file.rs
 ```
 
 ## Sample (for testing)
@@ -27,14 +27,17 @@ Rustの簡易サンプルを同梱しています:
 
 ```bash
 # initialize疎通
-node dist/cli.js ping --root samples/rust-basic
+node dist/cli.js --root samples/rust-basic ping
 
 # documentSymbol
-node dist/cli.js symbols samples/rust-basic/src/math.rs --root samples/rust-basic --format pretty
+node dist/cli.js --root samples/rust-basic --format pretty symbols samples/rust-basic/src/math.rs
 
 # references: main.rs 内の add 呼び出し位置（0-based）
 # 例: 9行目の "add" の a 位置（"    let x = add(1, 2);"）
-node dist/cli.js references samples/rust-basic/src/main.rs 8 12 --root samples/rust-basic --format json
+node dist/cli.js --root samples/rust-basic --format json references samples/rust-basic/src/main.rs 8 12
+
+# definition（rust-analyzerの初期化直後は結果が空になることがあるのでwait推奨）
+node dist/cli.js --root samples/rust-basic --format pretty --wait-ms 500 definition samples/rust-basic/src/main.rs 8 12
 ```
 
 ## Notes
@@ -48,9 +51,10 @@ node dist/cli.js references samples/rust-basic/src/main.rs 8 12 --root samples/r
 
 ```bash
 # stdinでfileパスを渡す
-printf '%s\n' samples/rust-basic/src/math.rs | node dist/cli.js symbols - --root samples/rust-basic --jq 'length'
+printf '%s\n' samples/rust-basic/src/math.rs \
+  | node dist/cli.js --root samples/rust-basic --jq 'length' symbols -
 
 # JSON stdinでreferences入力を渡す
 printf '{"file":"samples/rust-basic/src/main.rs","line":8,"col":12}' \
-  | node dist/cli.js references --stdin --root samples/rust-basic --jq '.[0]'
+  | node dist/cli.js --root samples/rust-basic --stdin --jq '.[0]' references
 ```
