@@ -234,6 +234,17 @@ async function onRequest(req: JsonRpcRequest) {
         ]
       });
 
+    case "textDocument/documentHighlight":
+      return respond(req.id, [
+        {
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 5 }
+          },
+          kind: 1
+        }
+      ]);
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [
