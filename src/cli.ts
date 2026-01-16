@@ -917,6 +917,85 @@ program
   });
 
 program
+  .command("inlay-hints")
+  .description("textDocument/inlayHint")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[startLine]", "0-based start line")
+  .argument("[startCol]", "0-based start column")
+  .argument("[endLine]", "0-based end line")
+  .argument("[endCol]", "0-based end column")
+  .action(async (fileArg?: string, startLineArg?: string, startColArg?: string, endLineArg?: string, endColArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let startLine = startLineArg;
+    let startCol = startColArg;
+    let endLine = endLineArg;
+    let endCol = endColArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as {
+        file: string;
+        startLine: number;
+        startCol: number;
+        endLine: number;
+        endCol: number;
+      };
+      file = params.file;
+      startLine = String(params.startLine);
+      startCol = String(params.startCol);
+      endLine = String(params.endLine);
+      endCol = String(params.endCol);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || startLine == null || startCol == null || endLine == null || endCol == null) {
+      throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
+    }
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const range = {
+      start: { line: parseIntStrict(String(startLine)), character: parseIntStrict(String(startCol)) },
+      end: { line: parseIntStrict(String(endLine)), character: parseIntStrict(String(endCol)) }
+    };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/inlayHint", {
+            textDocument: { uri },
+            range
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("inlay"),
+          cmd: "lsp/request",
+          method: "textDocument/inlayHint",
+          params: {
+            textDocument: { uri },
+            range
+          }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
   .command("symbols")
   .description("textDocument/documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")

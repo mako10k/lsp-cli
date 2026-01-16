@@ -245,6 +245,15 @@ async function onRequest(req: JsonRpcRequest) {
         }
       ]);
 
+    case "textDocument/inlayHint":
+      return respond(req.id, [
+        {
+          position: { line: 0, character: 5 },
+          label: ": number",
+          kind: 1
+        }
+      ]);
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [
