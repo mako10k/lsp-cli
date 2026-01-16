@@ -67,6 +67,57 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 ws-
 
 - 変更適用はデフォルト dry-run で、`--apply` 指定時のみファイルを書き換えます。
 
+## Daemon mode（常駐）
+
+同一 `--root` での繰り返し実行コスト（initialize等）を下げるため、CLIはデフォルトで **daemonへの接続を試みます**。接続できない場合は **暗黙にdaemonを起動**して再接続し、それでも失敗した場合は従来通り **単発でLSPを起動（フォールバック）**します。
+
+明示的な `daemon start` コマンドはありません（自動起動のみ）。
+
+### Daemon events（pull型）
+
+daemonは `textDocument/publishDiagnostics` などの通知を蓄積し、`events` で取得できます。
+
+```bash
+# diagnostics を取得（生JSON）
+npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics
+
+# cursor を使って差分取得（前回結果の cursor を --since に渡す）
+npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0
+```
+
+### Daemon server control（LSPのみ停止/再起動）
+
+daemon自体は落とさず、daemon内のLSPセッションだけを止めたり、initializeからやり直したりできます。
+
+```bash
+# daemon内のLSPが動いているか確認
+npx @mako10k/lsp-cli --root samples/rust-basic server-status
+
+# LSPだけ停止（daemonは生存）
+npx @mako10k/lsp-cli --root samples/rust-basic server-stop
+
+# LSPを再起動（initializeからやり直し）
+npx @mako10k/lsp-cli --root samples/rust-basic server-restart
+```
+
+### Daemon stop（daemonプロセス停止）
+
+```bash
+npx @mako10k/lsp-cli --root samples/rust-basic daemon-stop
+```
+
+## apply-edits（WorkspaceEdit適用/ドライラン）
+
+LSPが返した `WorkspaceEdit` を、stdinから与えて dry-run/適用できます（既存のWorkspaceEdit適用ロジックを再利用）。
+
+```bash
+# dry-run（内容をプレビュー）
+cat workspaceEdit.json | npx @mako10k/lsp-cli apply-edits
+
+# 適用（ファイルを書き換える）
+cat workspaceEdit.json | npx @mako10k/lsp-cli apply-edits --apply
+```
+
 ### Batch mode (JSONL)
 
 stdin から JSON Lines（1行=1リクエスト）を読み、同一LSPセッションで順に実行します。

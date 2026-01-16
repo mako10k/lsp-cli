@@ -103,15 +103,20 @@
   - 出力: `--jq '<filter>'` でJSON出力を `jq` に通して抽出/整形できる（`jq` がPATHに必要）
 
 ### 6.1 追加コマンド案（daemon運用）
-- `daemon`:
-  - 指定rootの LSP サーバを起動して常駐し、Unix socketで request を受ける
+- daemon起動:
+  - 明示的な `daemon start` コマンドは持たず、CLIが必要に応じて **暗黙に起動**する（daemon優先→失敗時フォールバック）
 - `events`:
   - daemonが蓄積した通知イベントを取得する
   - 例: `--kind diagnostics|log|progress` のような種類別フィルタ
   - 例: `--since <cursor>` により差分取得（カーソルは単調増加IDを想定）
-- `server stop` / `server restart`:
-  - daemon内の LSP サーバを停止/再起動する（initializeをやり直す）
+- `server-status`:
+  - daemon内のLSPサーバ状態を返す（runningなど）
+- `server-stop` / `server-restart`:
+  - `server-stop`: daemonは生存したまま **LSPセッションのみ停止**する（この後、通常のコマンド実行で必要なら自動的に起動される）
+  - `server-restart`: LSPセッションを **initializeからやり直す**（停止中でも実行できる）
   - クライアントから安全にトリガできるようにする
+- `daemon-stop`:
+  - daemonプロセスを停止する
 
 ## 7. 合意事項（2026-01-15）
 - 実装言語: **Node.js + TypeScript**（LSP/JSON-RPC周りのSDKが充実しているため。例: `vscode-jsonrpc`）
