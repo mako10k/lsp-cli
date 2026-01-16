@@ -617,21 +617,42 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
-
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const res = await client.request("textDocument/references", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) },
-      context: { includeDeclaration: true }
-    });
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
 
-    await client.shutdown();
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/references", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+            context: { includeDeclaration: true }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("refs"),
+          cmd: "lsp/request",
+          method: "textDocument/references",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+            context: { includeDeclaration: true }
+          }
+        });
+      }
+    );
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
@@ -712,23 +733,40 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
-
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
 
-    const res = await client.request("textDocument/definition", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
-    });
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
 
-    await client.shutdown();
+          return await client.request("textDocument/definition", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("def"),
+          cmd: "lsp/request",
+          method: "textDocument/definition",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
