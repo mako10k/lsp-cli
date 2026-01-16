@@ -222,6 +222,18 @@ async function onRequest(req: JsonRpcRequest) {
         activeParameter: 0
       });
 
+    case "textDocument/completion":
+      return respond(req.id, {
+        isIncomplete: false,
+        items: [
+          {
+            label: "mockCompletion",
+            kind: 6,
+            detail: "mock completion item"
+          }
+        ]
+      });
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [
