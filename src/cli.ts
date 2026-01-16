@@ -647,6 +647,68 @@ program
   });
 
 program
+  .command("prepare-rename")
+  .description("textDocument/prepareRename")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/prepareRename", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("prern"),
+          cmd: "lsp/request",
+          method: "textDocument/prepareRename",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
   .command("format")
   .description("textDocument/formatting (default: dry-run)")
   .argument("[file]", "file path, or '-' to read from stdin")

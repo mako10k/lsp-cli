@@ -249,6 +249,15 @@ async function onRequest(req: JsonRpcRequest) {
         }
       ]);
 
+    case "textDocument/prepareRename":
+      return respond(req.id, {
+        range: {
+          start: { line: 0, character: 6 },
+          end: { line: 0, character: 7 }
+        },
+        placeholder: "x"
+      });
+
     case "textDocument/inlayHint":
       return respond(req.id, [
         {
