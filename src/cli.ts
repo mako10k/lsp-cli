@@ -1396,32 +1396,63 @@ program
       if (!file || line == null || col == null || !newName) {
         throw new Error("file/line/col/newName are required (or use --stdin)");
       }
-
-      const client = new LspClient({ rootPath: root, server: profile });
-      await client.start();
-
       const abs = path.resolve(file);
       const uri = pathToFileUri(abs);
-      await client.openTextDocument(abs);
 
-      const edit = await client.request("textDocument/rename", {
-        textDocument: { uri },
-        position: { line: parseIntStrict(line), character: parseIntStrict(col) },
-        newName
-      });
+      const wantsApply = !!cmdOpts.apply;
 
-      if (cmdOpts.apply) {
-        await applyWorkspaceEdit(edit);
-        await client.shutdown();
+      const edit = await withDaemonFallback(
+        opts,
+        async () => {
+          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+          await client.start();
+          try {
+            await client.openTextDocument(abs);
+
+            return await client.request("textDocument/rename", {
+              textDocument: { uri },
+              position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+              newName
+            });
+          } finally {
+            await client.shutdown();
+          }
+        },
+        async (client) => {
+          if (wantsApply) {
+            const res = await client.request({
+              id: newRequestId("rename"),
+              cmd: "lsp/requestAndApply",
+              method: "textDocument/rename",
+              params: {
+                textDocument: { uri },
+                position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+                newName
+              }
+            });
+            return (res as any)?.result;
+          }
+
+          return await client.request({
+            id: newRequestId("rename"),
+            cmd: "lsp/request",
+            method: "textDocument/rename",
+            params: {
+              textDocument: { uri },
+              position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+              newName
+            }
+          });
+        }
+      );
+
+      if (wantsApply) {
+        if (edit) await applyWorkspaceEdit(edit);
         output({ format: opts.format, jq: opts.jq }, { applied: true });
         return;
       }
 
-      await client.shutdown();
-      output(
-        { format: opts.format, jq: opts.jq },
-        opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit
-      );
+      output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
     }
   );
 
@@ -1487,22 +1518,47 @@ program
       if (!file || startLine == null || startCol == null || endLine == null || endCol == null) {
         throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
       }
-
-      const client = new LspClient({ rootPath: root, server: profile, applyEdits: !!cmdOpts?.apply });
-      await client.start();
-
       const abs = path.resolve(file);
       const uri = pathToFileUri(abs);
-      await client.openTextDocument(abs);
 
-      const actions = (await client.request("textDocument/codeAction", {
-        textDocument: { uri },
-        range: {
-          start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
-          end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+      const wantsApply = !!cmdOpts?.apply;
+
+      const actions = (await withDaemonFallback(
+        opts,
+        async () => {
+          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+          await client.start();
+          try {
+            await client.openTextDocument(abs);
+
+            return (await client.request("textDocument/codeAction", {
+              textDocument: { uri },
+              range: {
+                start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
+                end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+              },
+              context: { diagnostics: [] }
+            })) as any[];
+          } finally {
+            await client.shutdown();
+          }
         },
-        context: { diagnostics: [] }
-      })) as any[];
+        async (client) => {
+          return await client.request({
+            id: newRequestId("cact"),
+            cmd: "lsp/request",
+            method: "textDocument/codeAction",
+            params: {
+              textDocument: { uri },
+              range: {
+                start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
+                end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+              },
+              context: { diagnostics: [] }
+            }
+          });
+        }
+      )) as any[];
 
       const summarized = (actions ?? []).map((a, index) => ({
         index,
@@ -1546,7 +1602,6 @@ program
       })();
 
       if (pickedIdx == null) {
-        await client.shutdown();
         output(
           { format: opts.format, jq: opts.jq },
           opts.format === "pretty" && !opts.jq ? formatCodeActionsPretty(summarized) : summarized
@@ -1556,12 +1611,10 @@ program
 
       const selected = actions?.[pickedIdx];
       if (!selected) {
-        await client.shutdown();
         throw new Error(`no code action at index ${pickedIdx}`);
       }
 
       if (!cmdOpts?.apply) {
-        await client.shutdown();
         output(
           { format: opts.format, jq: opts.jq },
           opts.format === "pretty" && !opts.jq
@@ -1573,7 +1626,6 @@ program
 
       if (selected.edit) {
         await applyWorkspaceEdit(selected.edit);
-        await client.shutdown();
         output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind });
         return;
       }
@@ -1581,16 +1633,34 @@ program
       // LSP allows returning Command objects (or CodeAction.command).
       const cmd = selected.command;
       if (cmd && typeof cmd.command === "string") {
-        const res = await client.request("workspace/executeCommand", {
-          command: cmd.command,
-          arguments: cmd.arguments
-        });
-        await client.shutdown();
+        const res = await withDaemonFallback(
+          opts,
+          async () => {
+            const client = new LspClient({ rootPath: root, server: profile, applyEdits: true });
+            await client.start();
+            try {
+              await client.openTextDocument(abs);
+              return await client.request("workspace/executeCommand", {
+                command: cmd.command,
+                arguments: cmd.arguments
+              });
+            } finally {
+              await client.shutdown();
+            }
+          },
+          async (client) => {
+            const r = await client.request({
+              id: newRequestId("exec"),
+              cmd: "lsp/requestAndApply",
+              method: "workspace/executeCommand",
+              params: { command: cmd.command, arguments: cmd.arguments }
+            });
+            return (r as any)?.result;
+          }
+        );
         output({ format: opts.format, jq: opts.jq }, { applied: true, via: "command", index: pickedIdx, title: selected.title, kind: selected.kind, result: res });
         return;
       }
-
-      await client.shutdown();
       throw new Error("selected code action has neither edit nor executable command");
     }
   );

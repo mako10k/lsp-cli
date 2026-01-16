@@ -11,6 +11,7 @@ import { DaemonLog } from "./logging";
 import { EventQueue } from "./events";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { applyWorkspaceEdit } from "../lsp/workspaceEdit";
 
 export type DaemonServerOptions = {
   rootPath: string;
@@ -180,6 +181,28 @@ export class DaemonServer {
         if (!req.method) throw new Error("lsp/request requires method");
         await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
         return await this.client.request(String(req.method), req.params);
+      }
+
+      case "lsp/requestAndApply": {
+        if (!req.method) throw new Error("lsp/requestAndApply requires method");
+        await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
+
+        const appliedEdits: any[] = [];
+        const dispose = this.client.onRequest("workspace/applyEdit", async (params: any) => {
+          const edit = params?.edit;
+          if (edit) {
+            appliedEdits.push(edit);
+            await applyWorkspaceEdit(edit);
+          }
+          return { applied: true };
+        });
+
+        try {
+          const result = await this.client.request(String(req.method), req.params);
+          return { result, appliedEdits };
+        } finally {
+          dispose();
+        }
       }
 
       case "daemon/stop":

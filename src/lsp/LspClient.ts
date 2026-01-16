@@ -34,6 +34,8 @@ export class LspClient {
 
   private readonly notificationHandlers = new Map<string, Array<(params: any) => void>>();
 
+  private readonly requestHandlers = new Map<string, (params: any) => Promise<any>>();
+
   constructor(opts: { rootPath: string; server: ServerProfile; applyEdits?: boolean }) {
     this.rootPath = opts.rootPath;
     this.server = opts.server;
@@ -73,9 +75,10 @@ export class LspClient {
     });
 
     this.conn.onRequest("workspace/applyEdit", async (params: any) => {
-      if (!this.applyEdits) {
-        return { applied: false, failureReason: "client is in dry-run mode" };
-      }
+      const manual = this.requestHandlers.get("workspace/applyEdit");
+      if (manual) return await manual(params);
+
+      if (!this.applyEdits) return { applied: false, failureReason: "client is in dry-run mode" };
       try {
         await applyWorkspaceEdit(params?.edit);
         return { applied: true };
@@ -278,6 +281,14 @@ export class LspClient {
       const next = cur.filter((x) => x !== handler);
       if (next.length) this.notificationHandlers.set(method, next);
       else this.notificationHandlers.delete(method);
+    };
+  }
+
+  onRequest(method: string, handler: (params: any) => Promise<any>): () => void {
+    this.requestHandlers.set(method, handler);
+    return () => {
+      const cur = this.requestHandlers.get(method);
+      if (cur === handler) this.requestHandlers.delete(method);
     };
   }
 }
