@@ -1,16 +1,16 @@
 # lsp-cli
 
-任意のLSPサーバをCLIから駆動して、構造解析/リファクタリングを行うための軽量クライアント（MVP: rust-analyzer）。
+A lightweight CLI client to drive arbitrary LSP servers for structural analysis and refactoring (MVP: rust-analyzer).
 
 ## Quickstart
 
 ```bash
-# 疎通（rust-analyzerがPATHに必要）
-# rustupプロキシの場合は先に:
+# Smoke test (rust-analyzer must be in PATH)
+# If you use the rustup proxy, run this first:
 #   rustup component add rust-analyzer
 npx @mako10k/lsp-cli --root . ping
 
-# documentSymbol（line/colは0-based）
+# documentSymbol (line/col are 0-based)
 npx @mako10k/lsp-cli --root . --format pretty symbols path/to/file.rs
 ```
 
@@ -20,37 +20,37 @@ npx @mako10k/lsp-cli --root . --format pretty symbols path/to/file.rs
 npm install
 npm run build
 
-# repo をローカルにCLIとして入れる（lsp-cli コマンドが生える）
+# Install the repo locally as a CLI (provides the lsp-cli command)
 npm link
 lsp-cli --help
 ```
 
 ## Sample (for testing)
 
-Rustの簡易サンプルを同梱しています:
+A small Rust sample project is included:
 
 - `samples/rust-basic`
 
-例:
+Examples:
 
 ```bash
-# initialize疎通
+# initialize smoke test
 npx @mako10k/lsp-cli --root samples/rust-basic ping
 
 # documentSymbol
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty symbols samples/rust-basic/src/math.rs
 
-# references: main.rs 内の add 呼び出し位置（0-based）
-# 例: 9行目の "add" の a 位置（"    let x = add(1, 2);"）
+# references: the call site of add inside main.rs (0-based)
+# Example: the "a" position of "add" on line 9 ("    let x = add(1, 2);")
 npx @mako10k/lsp-cli --root samples/rust-basic --format json references samples/rust-basic/src/main.rs 8 12
 
-# definition（rust-analyzerの初期化直後は結果が空になることがあるのでwait推奨）
+# definition (right after rust-analyzer initialization, results may be empty; --wait is recommended)
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 definition samples/rust-basic/src/main.rs 8 12
 
 # hover
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 hover samples/rust-basic/src/main.rs 8 12
 
-# signature help（add( の中あたり）
+# signature help (somewhere inside add()
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 signature-help samples/rust-basic/src/main.rs 8 16
 
 # workspace symbols
@@ -58,69 +58,69 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 ws-
 ```
 
 ## Notes
-- 位置指定 (line, col) は **0-based**（LSP準拠）です。
-- `--server typescript-language-server` を指定すると TypeScript Language Server を npx で起動します（TypeScriptはワークスペース側に必要）:
+- Positions (`line`, `col`) are **0-based** (LSP-compliant).
+- With `--server typescript-language-server`, it starts TypeScript Language Server via npx (TypeScript is required in the target workspace):
 
   ```bash
   npx -y typescript-language-server --stdio
   ```
 
-- 変更適用はデフォルト dry-run で、`--apply` 指定時のみファイルを書き換えます。
+- Applying changes is dry-run by default; files are modified only when `--apply` is specified.
 
-## Daemon mode（常駐）
+## Daemon mode (persistent)
 
-同一 `--root` での繰り返し実行コスト（initialize等）を下げるため、CLIはデフォルトで **daemonへの接続を試みます**。接続できない場合は **暗黙にdaemonを起動**して再接続し、それでも失敗した場合は従来通り **単発でLSPを起動（フォールバック）**します。
+To reduce repeated execution costs (initialize, etc.) for the same `--root`, the CLI tries to **connect to a daemon by default**. If it cannot connect, it **implicitly starts the daemon** and retries; if it still fails, it falls back to the legacy behavior: **start LSP as a one-shot process**.
 
-明示的な `daemon start` コマンドはありません（自動起動のみ）。
+There is no explicit `daemon start` command (auto-start only).
 
-### Daemon events（pull型）
+### Daemon events (pull-based)
 
-daemonは `textDocument/publishDiagnostics` などの通知を蓄積し、`events` で取得できます。
+The daemon accumulates notifications such as `textDocument/publishDiagnostics`, and you can fetch them via `events`.
 
 ```bash
-# diagnostics を取得（生JSON）
+# Fetch diagnostics (raw JSON)
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics
 
-# cursor を使って差分取得（前回結果の cursor を --since に渡す）
+# Fetch deltas using a cursor (pass the previous cursor via --since)
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0
 ```
 
-### Daemon server control（LSPのみ停止/再起動）
+### Daemon server control (stop/restart LSP only)
 
-daemon自体は落とさず、daemon内のLSPセッションだけを止めたり、initializeからやり直したりできます。
+You can stop or restart only the LSP session inside the daemon, without killing the daemon process itself.
 
 ```bash
-# daemon内のLSPが動いているか確認
+# Check whether the LSP inside the daemon is running
 npx @mako10k/lsp-cli --root samples/rust-basic server-status
 
-# LSPだけ停止（daemonは生存）
+# Stop only the LSP (daemon stays alive)
 npx @mako10k/lsp-cli --root samples/rust-basic server-stop
 
-# LSPを再起動（initializeからやり直し）
+# Restart LSP (re-run initialize)
 npx @mako10k/lsp-cli --root samples/rust-basic server-restart
 ```
 
-### Daemon stop（daemonプロセス停止）
+### Daemon stop (stop the daemon process)
 
 ```bash
 npx @mako10k/lsp-cli --root samples/rust-basic daemon-stop
 ```
 
-## apply-edits（WorkspaceEdit適用/ドライラン）
+## apply-edits (apply/dry-run WorkspaceEdit)
 
-LSPが返した `WorkspaceEdit` を、stdinから与えて dry-run/適用できます（既存のWorkspaceEdit適用ロジックを再利用）。
+You can supply a `WorkspaceEdit` from stdin and preview/apply it (reuses the existing WorkspaceEdit application logic).
 
 ```bash
-# dry-run（内容をプレビュー）
+# dry-run (preview)
 cat workspaceEdit.json | npx @mako10k/lsp-cli apply-edits
 
-# 適用（ファイルを書き換える）
+# apply (modifies files)
 cat workspaceEdit.json | npx @mako10k/lsp-cli apply-edits --apply
 ```
 
 ### Batch mode (JSONL)
 
-stdin から JSON Lines（1行=1リクエスト）を読み、同一LSPセッションで順に実行します。
+Reads JSON Lines from stdin (one line = one request) and executes them sequentially within the same LSP session.
 
 ```bash
 cat <<'JSONL' | npx @mako10k/lsp-cli --root . --server typescript-language-server --format json batch
@@ -129,7 +129,7 @@ cat <<'JSONL' | npx @mako10k/lsp-cli --root . --server typescript-language-serve
 JSONL
 ```
 
-編集/リファクタを適用する場合は `batch --apply` を付けます（安全のため明示指定が必要）:
+To apply edits/refactors, add `batch --apply` (explicit opt-in for safety):
 
 ```bash
 cat <<'JSONL' | npx @mako10k/lsp-cli --root . --server typescript-language-server --format json batch --apply
@@ -139,23 +139,27 @@ JSONL
 
 ### Structured edit (delete symbol)
 
-`documentSymbol` を使ってシンボル名からブロック単位で削除します（dry-run例）:
+Deletes a symbol block by name using `documentSymbol` (dry-run example):
 
 ```bash
 npx @mako10k/lsp-cli --server typescript-language-server --root . --format pretty \
   delete-symbol src/servers/typescriptLanguageServer.ts typescriptLanguageServerProfile
 ```
-- `--jq '<filter>'` を付けるとJSON出力を `jq` に通して整形/抽出できます（`jq` がPATHに必要）。
-- `<file>` は `-` を指定すると stdin からファイルパスを読みます。
-- `--stdin` を指定すると、stdinからJSONでコマンド入力を受け取ります。
+- With `--jq '<filter>'`, JSON output is piped through `jq` for formatting/extraction (`jq` must be in PATH).
+- For `<file>`, pass `-` to read the file path from stdin.
+- With `--stdin`, command input is read as JSON from stdin.
+
+## Protocol support
+
+- See `PROTOCOL_SUPPORT.md` for a feature-by-feature comparison of LSP capabilities vs what `lsp-cli` implements.
 
 ### Config file (server profiles)
-- デフォルトで以下を探索します:
+- By default it searches:
   - `<root>/.lsp-cli.json`
   - `<root>/lsp-cli.config.json`
-- `--config <path>` で明示指定できます（相対パスは `<root>` からの相対として扱います）。
+- You can specify explicitly with `--config <path>` (relative paths are treated as relative to `<root>`).
 
-例: `.lsp-cli.json`
+Example: `.lsp-cli.json`
 
 ```json
 {
@@ -177,7 +181,7 @@ npx @mako10k/lsp-cli --server typescript-language-server --root . --format prett
 }
 ```
 
-使い方:
+Usage:
 
 ```bash
 npx @mako10k/lsp-cli --root samples/rust-basic --config .lsp-cli.json ping
@@ -186,11 +190,11 @@ npx @mako10k/lsp-cli --root samples/rust-basic --config .lsp-cli.json ping
 ### Examples (stdin / jq)
 
 ```bash
-# stdinでfileパスを渡す
+# Pass a file path via stdin
 printf '%s\n' samples/rust-basic/src/math.rs \
   | npx @mako10k/lsp-cli --root samples/rust-basic --jq 'length' symbols -
 
-# JSON stdinでreferences入力を渡す
+# Pass references input via JSON stdin
 printf '{"file":"samples/rust-basic/src/main.rs","line":8,"col":12}' \
   | npx @mako10k/lsp-cli --root samples/rust-basic --stdin --jq '.[0]' references
 ```
