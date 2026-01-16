@@ -79,6 +79,16 @@ async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, 
   }
 }
 
+async function withDaemonFallback<T>(opts: GlobalOpts, runDirect: () => Promise<T>, runDaemon: (client: DaemonClient) => Promise<T>): Promise<T> {
+  try {
+    return await withDaemonClient(opts, async (client) => {
+      return await runDaemon(client);
+    });
+  } catch {
+    return await runDirect();
+  }
+}
+
 async function readAllStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   return await new Promise((resolve, reject) => {
@@ -494,8 +504,6 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .action(async (fileArg?: string) => {
     const opts = program.opts() as GlobalOpts;
-    const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     if (opts.stdin) {
@@ -506,17 +514,35 @@ program
     }
     if (!file) throw new Error("file is required (or use --stdin)");
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
-    const res = await client.request("textDocument/documentSymbol", {
-      textDocument: { uri }
-    });
 
-    await client.shutdown();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const root = path.resolve(opts.root ?? process.cwd());
+        const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/documentSymbol", {
+            textDocument: { uri }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("symbols"),
+          cmd: "lsp/request",
+          method: "textDocument/documentSymbol",
+          params: { textDocument: { uri } }
+        });
+      }
+    );
+
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatDocumentSymbolsPretty(res, abs) : res
