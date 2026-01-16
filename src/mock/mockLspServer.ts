@@ -305,6 +305,32 @@ async function onRequest(req: JsonRpcRequest) {
       ]);
     }
 
+    case "textDocument/implementation": {
+      const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      return respond(req.id, [
+        {
+          uri,
+          range: {
+            start: { line: 0, character: 1 },
+            end: { line: 0, character: 1 }
+          }
+        }
+      ]);
+    }
+
+    case "textDocument/typeDefinition": {
+      const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      return respond(req.id, [
+        {
+          uri,
+          range: {
+            start: { line: 0, character: 2 },
+            end: { line: 0, character: 2 }
+          }
+        }
+      ]);
+    }
+
     case "workspace/symbol": {
       const query = typeof req.params?.query === "string" ? req.params.query : "";
       return respond(req.id, [

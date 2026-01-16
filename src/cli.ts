@@ -1541,6 +1541,136 @@ program
   });
 
 program
+  .command("implementation")
+  .description("textDocument/implementation")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/implementation", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("impl"),
+          cmd: "lsp/request",
+          method: "textDocument/implementation",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res);
+  });
+
+program
+  .command("type-definition")
+  .description("textDocument/typeDefinition")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/typeDefinition", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("typedef"),
+          cmd: "lsp/request",
+          method: "textDocument/typeDefinition",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res);
+  });
+
+program
   .command("definition-daemon")
   .description("textDocument/definition via daemon (experimental)")
   .argument("[file]", "file path, or '-' to read from stdin")
@@ -1581,106 +1711,6 @@ program
       });
     });
 
-    output(
-      { format: opts.format, jq: opts.jq },
-      opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
-    );
-  });
-
-program
-  .command("implementation")
-  .description("textDocument/implementation")
-  .argument("[file]", "file path, or '-' to read from stdin")
-  .argument("[line]", "0-based line")
-  .argument("[col]", "0-based column")
-  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
-    const opts = program.opts() as GlobalOpts;
-    const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
-
-    let file = fileArg;
-    let line = lineArg;
-    let col = colArg;
-
-    if (opts.stdin) {
-      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
-      file = params.file;
-      line = String(params.line);
-      col = String(params.col);
-    } else if (file === "-") {
-      file = (await readAllStdin()).trim();
-    }
-
-    if (!file || line == null || col == null) {
-      throw new Error("file/line/col are required (or use --stdin)");
-    }
-
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
-    const abs = path.resolve(file);
-    const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
-
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = await client.request("textDocument/implementation", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
-    });
-
-    await client.shutdown();
-    output(
-      { format: opts.format, jq: opts.jq },
-      opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
-    );
-  });
-
-program
-  .command("type-definition")
-  .description("textDocument/typeDefinition")
-  .argument("[file]", "file path, or '-' to read from stdin")
-  .argument("[line]", "0-based line")
-  .argument("[col]", "0-based column")
-  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
-    const opts = program.opts() as GlobalOpts;
-    const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
-
-    let file = fileArg;
-    let line = lineArg;
-    let col = colArg;
-
-    if (opts.stdin) {
-      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
-      file = params.file;
-      line = String(params.line);
-      col = String(params.col);
-    } else if (file === "-") {
-      file = (await readAllStdin()).trim();
-    }
-
-    if (!file || line == null || col == null) {
-      throw new Error("file/line/col are required (or use --stdin)");
-    }
-
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
-    const abs = path.resolve(file);
-    const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
-
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = await client.request("textDocument/typeDefinition", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
-    });
-
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
