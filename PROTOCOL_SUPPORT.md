@@ -84,5 +84,5 @@ Even if the server supports these, the CLI currently has no dedicated command fo
 ## Additional Notes
 
 - The `*-daemon` commands such as `symbols-daemon` are “daemon-only”, but in normal usage the non-suffixed commands such as `symbols` run daemon-first.
-- `implementation` / `type-definition` currently have no daemon-backed commands and run by spawning the server over stdio.
+- `implementation` / `type-definition` run daemon-first (and fall back to direct stdio when needed).
 

@@ -425,6 +425,12 @@ program
     "after",
     [
       "",
+      "Help navigation:",
+      "  lsp-cli help toc                # TOC (what to read next)",
+      "  lsp-cli help commands            # command index by category",
+      "  lsp-cli help <command>           # detailed command help (same as '<command> --help')",
+      "  lsp-cli help examples            # use-case oriented examples",
+      "",
       "Position notes:",
       "  line/col are 0-based (LSP compliant). Example: line=0 col=0 is the first character.",
       "",
@@ -438,6 +444,135 @@ program
       ""
     ].join("\n")
   );
+
+// Provide a navigable help hub.
+// We'll disable Commander's auto-generated 'help' command and implement our own.
+program.addHelpCommand(false);
+
+type HelpTopic = "toc" | "commands" | "examples";
+
+function printHelpToc(): void {
+  process.stdout.write(
+    [
+      "lsp-cli help (TOC)",
+      "",
+      "USAGE:",
+      "  lsp-cli --help",
+      "  lsp-cli help toc",
+      "  lsp-cli help commands",
+      "  lsp-cli help examples",
+      "  lsp-cli help <command>",
+      "",
+      "Next steps:",
+      "  - Start with 'commands' to find the right subcommand.",
+      "  - Use 'help <command>' to see flags/args (and stdin/apply rules).",
+      "",
+      "See also:",
+      "  - README.md (long-form guide)",
+      "  - PROTOCOL_SUPPORT.md (feature matrix)",
+      ""
+    ].join("\n")
+  );
+}
+
+function printHelpCommands(): void {
+  process.stdout.write(
+    [
+      "lsp-cli help commands (command index)",
+      "",
+      "USAGE:",
+      "  lsp-cli help commands",
+      "  lsp-cli help <command>",
+      "",
+      "Core:",
+      "  ping",
+      "",
+      "Daemon / ops:",
+      "  daemon-status  daemon-stop  daemon-log  events",
+      "  server-status  server-stop  server-restart",
+      "",
+      "Read-only navigation:",
+      "  symbols  references  definition  type-definition  implementation",
+      "  hover  signature-help  ws-symbols",
+      "",
+      "Refactor / edits (dry-run by default):",
+      "  rename  code-actions  apply-edits  delete-symbol",
+      "",
+      "Formatting / tokens:",
+      "  format  format-range  completion  document-highlight  inlay-hints",
+      "  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
+      "  prepare-rename  did-change-configuration",
+      "",
+      "Batch / advanced:",
+      "  batch  daemon-request",
+      ""
+    ].join("\n")
+  );
+}
+
+function printHelpExamples(): void {
+  process.stdout.write(
+    [
+      "lsp-cli help examples (use-case samples)",
+      "",
+      "USAGE:",
+      "  lsp-cli help examples",
+      "",
+      "1) Navigate (definition → references)",
+      "  lsp-cli --root <root> --format pretty --wait-ms 500 definition <file> <line> <col>",
+      "  lsp-cli --root <root> --format pretty --wait-ms 500 references <file> <line> <col>",
+      "",
+      "2) Safe refactor (dry-run first)",
+      "  lsp-cli --root <root> rename <file> <line> <col> <newName>",
+      "  lsp-cli --root <root> rename --apply <file> <line> <col> <newName>",
+      "",
+      "3) Pull diagnostics (daemon events)",
+      "  lsp-cli --root <root> events --kind diagnostics --since 0",
+      "",
+      "4) Batch (JSONL)",
+      "  cat <<'JSONL' | lsp-cli --root <root> --format json batch",
+      "  {\"cmd\":\"definition\",\"file\":\"src/main.rs\",\"line\":0,\"col\":0}",
+      "  JSONL",
+      ""
+    ].join("\n")
+  );
+}
+
+program
+  .command("helpx")
+  .alias("help")
+  .description("Help hub: TOC, command index, examples, and per-command help")
+  .argument("[topicOrCommand]", "toc | commands | examples | <command>")
+  .action(async (topicOrCommand?: string) => {
+    const arg = String(topicOrCommand ?? "toc");
+
+    const knownTopics: Record<string, HelpTopic> = {
+      toc: "toc",
+      commands: "commands",
+      examples: "examples"
+    };
+
+    const topic = knownTopics[arg];
+    if (topic === "toc") {
+      printHelpToc();
+      return;
+    }
+    if (topic === "commands") {
+      printHelpCommands();
+      return;
+    }
+    if (topic === "examples") {
+      printHelpExamples();
+      return;
+    }
+
+    // Delegate to Commander per-command help.
+    const cmd = program.commands.find((c) => c.name() === arg);
+    if (!cmd) {
+      throw new Error(`unknown help topic/command: ${arg}`);
+    }
+    cmd.help();
+  });
 
 program
   .command("ping")

@@ -2,6 +2,28 @@
 
 A lightweight CLI client to drive arbitrary LSP servers for structural analysis and refactoring (MVP: rust-analyzer).
 
+## Table of contents
+
+- [Quickstart](#quickstart)
+- [Sample (for testing)](#sample-for-testing)
+- [Command reference](#command-reference)
+  - [Global options](#global-options)
+  - [Command index](#command-index)
+  - [Read-only navigation](#read-only-navigation)
+  - [Edits and refactoring (mutating)](#edits-and-refactoring-mutating)
+  - [Formatting and tokens](#formatting-and-tokens)
+  - [Daemon and operations](#daemon-and-operations)
+  - [Batch mode](#batch-mode)
+  - [Advanced / debug](#advanced--debug)
+- [Use case samples](#use-case-samples)
+- [Architecture / config / details](#architecture--config--details)
+  - [Daemon-first + fallback](#daemon-first--fallback)
+  - [Events (pull-based notifications)](#events-pull-based-notifications)
+  - [Dry-run vs --apply](#dry-run-vs---apply)
+  - [Config file (server profiles)](#config-file-server-profiles)
+  - [Stdin / jq recipes](#stdin--jq-recipes)
+- [Protocol support](#protocol-support)
+
 ## Quickstart
 
 ```bash
@@ -73,11 +95,137 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 typ
 
 - Applying changes is dry-run by default; files are modified only when `--apply` is specified.
 
+## Command reference
+
+### Global options
+
+Global options must appear **before** the command for reliable parsing.
+
+- `--root <path>`: workspace root (default: cwd)
+- `--server <name>`: server profile name (default: `rust-analyzer`)
+- `--server-cmd <cmd>`: override the server command string
+- `--config <path>`: config file path (default: `<root>/.lsp-cli.json` or `<root>/lsp-cli.config.json`)
+- `--format <json|pretty>`: output format (default: `json`)
+- `--stdin`: read command params from stdin as JSON (command-specific)
+- `--jq <filter>`: pipe JSON output through `jq` (requires `jq` in PATH)
+- `--wait-ms <n>`: wait before some requests (ms; helps rust-analyzer warm-up)
+- `--daemon-log <path>`: daemon log sink (auto-start); `discard|default|<path>`
+
+### Command index
+
+Read-only navigation:
+- `symbols`, `references`, `definition`, `type-definition`, `implementation`, `hover`, `signature-help`, `ws-symbols`
+
+Edits and refactoring (mutating; dry-run by default):
+- `rename`, `code-actions`, `apply-edits`, `delete-symbol`
+
+Formatting and tokens:
+- `format`, `format-range`, `completion`, `document-highlight`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`
+
+Daemon and operations:
+- `daemon-status`, `daemon-stop`, `daemon-log`, `events`, `server-status`, `server-stop`, `server-restart`, `did-change-configuration`
+
+Batch / advanced:
+- `batch`, `daemon-request`
+
+### Read-only navigation
+
+Typical arguments are:
+
+- `symbols <file>`
+- `references <file> <line> <col>`
+- `definition <file> <line> <col>`
+- `type-definition <file> <line> <col>`
+- `implementation <file> <line> <col>`
+- `hover <file> <line> <col>`
+- `signature-help <file> <line> <col>`
+- `ws-symbols <query> [--limit <n>]`
+
+### Edits and refactoring (mutating)
+
+- `rename <file> <line> <col> <newName>`: defaults to dry-run; add `--apply` to modify files.
+- `code-actions <file> ...`: defaults to dry-run; add `--apply` to apply selected action.
+- `apply-edits`: reads `WorkspaceEdit` JSON from stdin; add `--apply` to modify files.
+- `delete-symbol <file> <symbolName>`: dry-run by default; add `--apply` to modify files.
+
+### Formatting and tokens
+
+- `format <file> [--apply]`
+- `format-range <file> <startLine> <startCol> <endLine> <endCol> [--apply]`
+- `completion <file> <line> <col>`
+- `document-highlight <file> <line> <col>`
+- `inlay-hints <file> <startLine> <startCol> <endLine> <endCol>`
+- `semantic-tokens-full <file>`
+- `semantic-tokens-range <file> <startLine> <startCol> <endLine> <endCol>`
+- `semantic-tokens-delta <file>`
+- `prepare-rename <file> <line> <col>`
+- `did-change-configuration --settings '<json>'` (or `--stdin`)
+
+### Daemon and operations
+
+- `daemon-status`: daemon metadata (pid/startedAt/socketPath)
+- `server-status`: whether in-daemon LSP is running
+- `server-stop` / `server-restart`: stop/restart only the in-daemon LSP session
+- `daemon-stop`: stop the daemon process itself
+- `events --kind diagnostics --since <cursor> --limit <n>`: pull-based notifications
+- `daemon-log [discard|default|<path>]`: get/set daemon log sink
+
+### Batch mode
+
+`batch` reads JSON Lines (one line = one request) from stdin and executes them sequentially within the same LSP session.
+
+### Advanced / debug
+
+- `daemon-request --method <name> [--params <json>]`: send an arbitrary LSP request via the daemon.
+
 ## Daemon mode (persistent)
 
 To reduce repeated execution costs (initialize, etc.) for the same `--root`, the CLI tries to **connect to a daemon by default**. If it cannot connect, it **implicitly starts the daemon** and retries; if it still fails, it falls back to the legacy behavior: **start LSP as a one-shot process**.
 
 There is no explicit `daemon start` command (auto-start only).
+
+## Use case samples
+
+### 1) Pull diagnostics (after edits)
+
+```bash
+# run something that triggers diagnostics (e.g. open/format/rename)
+npx @mako10k/lsp-cli --root samples/rust-basic symbols samples/rust-basic/src/math.rs > /dev/null
+
+# then pull diagnostics
+npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0
+```
+
+### 2) "Navigate" (definition → references)
+
+```bash
+npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 definition samples/rust-basic/src/main.rs 8 12
+npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 references samples/rust-basic/src/main.rs 8 12
+```
+
+### 3) Safe refactor (dry-run first)
+
+```bash
+# preview rename
+npx @mako10k/lsp-cli --root samples/rust-basic rename samples/rust-basic/src/main.rs 8 12 new_name
+
+# apply rename
+npx @mako10k/lsp-cli --root samples/rust-basic rename --apply samples/rust-basic/src/main.rs 8 12 new_name
+```
+
+## Architecture / config / details
+
+### Daemon-first + fallback
+
+By default, many commands try: daemon → auto-start daemon → fallback to direct stdio.
+
+### Events (pull-based notifications)
+
+The daemon stores notifications like `textDocument/publishDiagnostics` and exposes them via `events`.
+
+### Dry-run vs --apply
+
+Commands that can modify files are **dry-run by default**. To actually write files, pass `--apply`.
 
 ### Daemon events (pull-based)
 
