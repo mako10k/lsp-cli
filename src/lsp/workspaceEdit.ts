@@ -77,27 +77,33 @@ export function formatWorkspaceEditPretty(edit: WorkspaceEdit): string {
   return lines.join("\n");
 }
 
-export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<void> {
+export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<string[]> {
+  const affectedUris: string[] = [];
+
   // Prefer ordered documentChanges (may include file ops).
   if (edit.documentChanges) {
     for (const dc of edit.documentChanges) {
       if (isTextDocumentEdit(dc)) {
         await applyTextDocumentEdits(dc.textDocument.uri, dc.edits);
+        affectedUris.push(dc.textDocument.uri);
         continue;
       }
 
       if (isCreateFile(dc)) {
         await applyCreateFile(dc);
+        affectedUris.push(dc.uri);
         continue;
       }
 
       if (isRenameFile(dc)) {
         await applyRenameFile(dc);
+        affectedUris.push(dc.newUri);
         continue;
       }
 
       if (isDeleteFile(dc)) {
         await applyDeleteFile(dc);
+        // Don't track deleted files for didSave
         continue;
       }
 
@@ -113,8 +119,11 @@ export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<void> {
   if (edit.changes) {
     for (const [uri, edits] of Object.entries(edit.changes)) {
       await applyTextDocumentEdits(uri, edits);
+      affectedUris.push(uri);
     }
   }
+
+  return affectedUris;
 }
 
 function isTextDocumentEdit(x: any): x is TextDocumentEdit {

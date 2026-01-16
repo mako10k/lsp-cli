@@ -9,6 +9,7 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number | string; result?: any; erro
 
 let lastDidOpen: any = null;
 let lastDidChange: any = null;
+let lastDidSave: any = null;
 let lastDidChangeConfiguration: any = null;
 let initializeCount = 0;
 
@@ -132,11 +133,17 @@ async function onRequest(req: JsonRpcRequest) {
       const uri = req.params?.textDocument?.uri;
       // Minimal deterministic formatting: rewrite the whole document.
       // Return TextEdit[] (common in LSP) so the client can normalize if needed.
+      // We need to compute the correct end position based on the last known document.
+      const lastText = lastDidOpen?.textDocument?.text ?? "";
+      const lines = lastText.split("\n");
+      const lastLineIdx = Math.max(0, lines.length - 1);
+      const lastLineLen = lines[lastLineIdx]?.length ?? 0;
+
       return respond(req.id, [
         {
           range: {
             start: { line: 0, character: 0 },
-            end: { line: 0, character: 0 }
+            end: { line: lastLineIdx, character: lastLineLen }
           },
           newText: "const x = 1\n"
         }
@@ -191,6 +198,9 @@ async function onRequest(req: JsonRpcRequest) {
 
     case "mock/getLastDidChangeConfiguration":
       return respond(req.id, lastDidChangeConfiguration);
+
+    case "mock/getLastDidSave":
+      return respond(req.id, lastDidSave);
 
     case "mock/getInitializeCount":
       return respond(req.id, initializeCount);
@@ -365,6 +375,9 @@ function onNotification(n: JsonRpcNotification) {
       return;
     case "textDocument/didChange":
       lastDidChange = n.params;
+      return;
+    case "textDocument/didSave":
+      lastDidSave = n.params;
       return;
     case "workspace/didChangeConfiguration":
       lastDidChangeConfiguration = n.params;

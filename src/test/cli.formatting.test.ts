@@ -57,6 +57,6 @@ test("cli format can dry-run and apply formatting edits", { timeout: 10_000 }, a
     assert.equal(out.applied, true);
 
     const after = await fs.readFile(file, "utf8");
-    assert.equal(after, "const x = 1\nconst   x=1\n");
+    assert.equal(after, "const x = 1\n");
   }
 });

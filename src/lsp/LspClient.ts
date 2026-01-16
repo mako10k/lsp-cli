@@ -25,6 +25,11 @@ type TextDocumentItem = {
   text: string;
 };
 
+type PublishDiagnosticsParams = {
+  uri: string;
+  diagnostics?: unknown[];
+};
+
 export class LspClient {
   private readonly rootPath: string;
   private readonly server: ServerProfile;
@@ -201,6 +206,47 @@ export class LspClient {
     const fs = await import("node:fs/promises");
     const text = await fs.readFile(filePath, "utf8");
     await this.openTextDocumentWithText(filePath, text);
+  }
+
+  didSaveTextDocument(filePath: string, opts?: { includeText?: boolean }): void {
+    if (!this.conn) throw new Error("LSP connection not started");
+
+    const uri = pathToFileUri(filePath);
+    const cur = this.openedDocs.get(uri);
+    const includeText = !!opts?.includeText;
+
+    this.notify("textDocument/didSave", {
+      textDocument: { uri },
+      ...(includeText ? { text: cur?.text } : {})
+    });
+  }
+
+  async waitForDiagnostics(uris: string[], waitMs: number): Promise<Record<string, unknown[]>> {
+    if (!this.conn) throw new Error("LSP connection not started");
+
+    const want = new Set(uris);
+    const got = new Map<string, unknown[]>();
+
+    const stop = this.onNotification("textDocument/publishDiagnostics", (params: PublishDiagnosticsParams) => {
+      const uri = typeof (params as any)?.uri === "string" ? String((params as any).uri) : null;
+      if (!uri || !want.has(uri)) return;
+      const diagnostics = Array.isArray((params as any)?.diagnostics) ? (params as any).diagnostics : [];
+      got.set(uri, diagnostics);
+    });
+
+    try {
+      const deadline = Date.now() + Math.max(0, waitMs);
+      while (Date.now() < deadline) {
+        if (got.size >= want.size) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    } finally {
+      stop();
+    }
+
+    const out: Record<string, unknown[]> = {};
+    for (const uri of uris) out[uri] = got.get(uri) ?? [];
+    return out;
   }
 
   async changeTextDocument(filePath: string, newText?: string): Promise<void> {

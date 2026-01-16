@@ -1061,6 +1061,8 @@ program
   .description("textDocument/formatting (default: dry-run)")
   .argument("[file]", "file path, or '-' to read from stdin")
   .option("--apply", "apply edits to files")
+  .option("--save-after-apply", "after apply, send textDocument/didSave for the file")
+  .option("--wait-diagnostics-ms <ms>", "after didSave, wait for publishDiagnostics (opt-in)", "0")
   .option("--tab-size <n>", "tab size", "2")
   .option("--insert-spaces <bool>", "insert spaces", "true")
   .addHelpText(
@@ -1084,7 +1086,11 @@ program
       ""
     ].join("\n")
   )
-  .action(async (fileArg?: string, cmdOpts?: { apply?: boolean; tabSize?: string; insertSpaces?: string }) => {
+  .action(
+    async (
+      fileArg?: string,
+      cmdOpts?: { apply?: boolean; saveAfterApply?: boolean; waitDiagnosticsMs?: string; tabSize?: string; insertSpaces?: string }
+    ) => {
     const opts = program.opts() as GlobalOpts;
 
     let file = fileArg;
@@ -1099,7 +1105,13 @@ program
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
 
+    const saveAfterApply = !!cmdOpts?.saveAfterApply;
+    const waitDiagMs = parseIntStrict(String(cmdOpts?.waitDiagnosticsMs ?? "0"));
     const wantsApply = !!cmdOpts?.apply;
+
+    if (saveAfterApply && !wantsApply) {
+      throw new Error("--save-after-apply requires --apply");
+    }
     const formattingOptions = {
       tabSize: parseIntStrict(String(cmdOpts?.tabSize ?? "2")),
       insertSpaces: String(cmdOpts?.insertSpaces ?? "true") !== "false"
@@ -1112,45 +1124,200 @@ program
       throw new Error("unexpected formatting result (expected TextEdit[] or WorkspaceEdit)");
     };
 
-    const edit = normalizeToWorkspaceEdit(
-      await withDaemonFallback(
-        opts,
-        async () => {
-          const root = path.resolve(opts.root ?? process.cwd());
-          const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
-          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
-          await client.start();
-          try {
-            await client.openTextDocument(abs);
-            return await client.request("textDocument/formatting", {
-              textDocument: { uri },
-              options: formattingOptions
-            });
-          } finally {
-            await client.shutdown();
-          }
-        },
-        async (client) => {
-          return await client.request({
-            id: newRequestId("fmt"),
-            cmd: "lsp/request",
-            method: "textDocument/formatting",
-            params: {
-              textDocument: { uri },
-              options: formattingOptions
-            }
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          const raw = await client.request("textDocument/formatting", {
+            textDocument: { uri },
+            options: formattingOptions
           });
+
+          const edit = normalizeToWorkspaceEdit(raw);
+
+          if (!wantsApply) return edit;
+
+          await applyWorkspaceEdit(edit);
+
+          if (!saveAfterApply) return { applied: true };
+
+          client.didSaveTextDocument(abs);
+          if (waitDiagMs > 0) {
+            const diagnostics = await client.waitForDiagnostics([uri], waitDiagMs);
+            return { applied: true, diagnostics };
+          }
+
+          return { applied: true };
+        } finally {
+          await client.shutdown();
         }
-      )
+      },
+      async (client) => {
+        const raw = await client.request({
+          id: newRequestId("fmt"),
+          cmd: "lsp/request",
+          method: "textDocument/formatting",
+          params: {
+            textDocument: { uri },
+            options: formattingOptions
+          }
+        });
+
+        const edit = normalizeToWorkspaceEdit(raw);
+        if (!wantsApply) return edit;
+
+        // Daemon scenario: formatting returns WorkspaceEdit directly (doesn't trigger workspace/applyEdit),
+        // so we must apply it ourselves by calling requestAndApply then applying the result.
+        const applyRes = await client.request({
+          id: newRequestId("fmtap"),
+          cmd: "lsp/requestAndApply",
+          method: "textDocument/formatting",
+          params: {
+            textDocument: { uri },
+            options: formattingOptions
+          }
+        });
+
+        // The result is the edit; apply it manually since server doesn't call workspace/applyEdit.
+        const editToApply = normalizeToWorkspaceEdit((applyRes as any)?.result ?? applyRes);
+        await applyWorkspaceEdit(editToApply);
+
+        if (!saveAfterApply) return { applied: true };
+
+        await client.request({
+          id: newRequestId("ds"),
+          cmd: "lsp/notify",
+          method: "textDocument/didSave",
+          params: { textDocument: { uri } }
+        });
+
+        if (waitDiagMs > 0) {
+          const deadline = Date.now() + waitDiagMs;
+          let since = 0;
+          while (Date.now() < deadline) {
+            const r = await client.request<{ nextCursor: number; events: any[] }>({
+              id: newRequestId("ev"),
+              cmd: "events/get",
+              kind: "diagnostics",
+              since,
+              limit: 200
+            });
+            since = r.nextCursor;
+            const hit = (r.events ?? []).find((e) => String(e?.params?.uri ?? "") === uri);
+            if (hit) {
+              const diags = Array.isArray(hit?.params?.diagnostics) ? hit.params.diagnostics : [];
+              return { applied: true, diagnostics: { [uri]: diags } };
+            }
+            await sleep(25);
+          }
+        }
+
+        return { applied: true };
+      }
     );
 
-    if (wantsApply) {
-      await applyWorkspaceEdit(edit);
-      output({ format: opts.format, jq: opts.jq }, { applied: true });
-      return;
-    }
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq && !wantsApply ? formatWorkspaceEditPretty(res) : res);
+  });
 
-    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
+program
+  .command("did-save")
+  .description("textDocument/didSave (notification; opt-in trigger)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .option("--include-text", "include the full document text (non-daemon mode only)")
+  .option("--wait-diagnostics-ms <ms>", "wait for publishDiagnostics and include in output (opt-in)", "0")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli did-save <file>",
+      "  lsp-cli did-save --wait-diagnostics-ms 500 <file>",
+      "  echo '{\"file\":\"src/main.rs\"}' | lsp-cli did-save --stdin",
+      "",
+      "NOTES:",
+      "  - Sends a notification; there is no direct LSP response payload.",
+      "  - --wait-diagnostics-ms is best-effort and may time out.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic did-save --wait-diagnostics-ms 500 src/main.rs",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string, cmdOpts?: { includeText?: boolean; waitDiagnosticsMs?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string };
+      file = params.file;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    const waitMs = parseIntStrict(String(cmdOpts?.waitDiagnosticsMs ?? "0"));
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          client.didSaveTextDocument(abs, { includeText: !!cmdOpts?.includeText });
+          if (waitMs > 0) {
+            const diagnostics = await client.waitForDiagnostics([uri], waitMs);
+            return { notified: true, diagnostics };
+          }
+          return { notified: true };
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        await client.request({
+          id: newRequestId("ds"),
+          cmd: "lsp/notify",
+          method: "textDocument/didSave",
+          params: { textDocument: { uri } }
+        });
+
+        if (waitMs > 0) {
+          const deadline = Date.now() + waitMs;
+          let since = 0;
+          while (Date.now() < deadline) {
+            const r = await client.request<{ nextCursor: number; events: any[] }>({
+              id: newRequestId("ev"),
+              cmd: "events/get",
+              kind: "diagnostics",
+              since,
+              limit: 200
+            });
+            since = r.nextCursor;
+            const hit = (r.events ?? []).find((e) => String(e?.params?.uri ?? "") === uri);
+            if (hit) {
+              const diags = Array.isArray(hit?.params?.diagnostics) ? hit.params.diagnostics : [];
+              return { notified: true, diagnostics: { [uri]: diags } };
+            }
+            await sleep(25);
+          }
+        }
+
+        return { notified: true };
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
   });
 
 program
@@ -2819,6 +2986,8 @@ program
   .argument("[col]", "0-based column")
   .argument("[newName]", "new name")
   .option("--apply", "apply WorkspaceEdit to files")
+  .option("--save-after-apply", "send didSave for edited files after apply")
+  .option("--wait-diagnostics-ms <ms>", "wait for publishDiagnostics after didSave (opt-in)", "0")
   .addHelpText(
     "after",
     [
@@ -2826,11 +2995,14 @@ program
       "USAGE:",
       "  lsp-cli rename <file> <line> <col> <newName>",
       "  lsp-cli rename --apply <file> <line> <col> <newName>",
+      "  lsp-cli rename --apply --save-after-apply --wait-diagnostics-ms 500 <file> <line> <col> <newName>",
       "  lsp-cli rename --stdin",
       "",
       "NOTES:",
       "  - Default is dry-run; changes are applied only with --apply.",
       "  - line/col are 0-based (LSP compliant).",
+      "  - --save-after-apply triggers didSave for edited files (requires --apply).",
+      "  - --wait-diagnostics-ms collects diagnostics after didSave (opt-in, default 0).",
       "",
       "EXAMPLES:",
       "  # dry-run (preview planned edits)",
@@ -2838,6 +3010,9 @@ program
       "",
       "  # apply edits", 
       "  lsp-cli --root samples/rust-basic rename --apply src/math.rs 0 4 add",
+      "",
+      "  # apply + didSave + diagnostics",
+      "  lsp-cli --root samples/rust-basic rename --apply --save-after-apply --wait-diagnostics-ms 500 src/math.rs 0 4 add",
       "",
       "  # via --stdin (JSON)",
       "  echo '{\"file\":\"src/math.rs\",\"line\":0,\"col\":4,\"newName\":\"add\"}' | lsp-cli --root samples/rust-basic rename --stdin",
@@ -2850,7 +3025,7 @@ program
       lineArg: string | undefined,
       colArg: string | undefined,
       newNameArg: string | undefined,
-      cmdOpts: { apply?: boolean }
+      cmdOpts: { apply?: boolean; saveAfterApply?: boolean; waitDiagnosticsMs?: string }
     ) => {
       const opts = program.opts() as GlobalOpts;
       const root = path.resolve(opts.root ?? process.cwd());
@@ -2883,8 +3058,14 @@ program
       const uri = pathToFileUri(abs);
 
       const wantsApply = !!cmdOpts.apply;
+      const saveAfterApply = !!cmdOpts.saveAfterApply;
+      const waitDiagMs = parseIntStrict(String(cmdOpts?.waitDiagnosticsMs ?? "0"));
 
-      const edit = await withDaemonFallback(
+      if (saveAfterApply && !wantsApply) {
+        throw new Error("--save-after-apply requires --apply");
+      }
+
+      const result = await withDaemonFallback(
         opts,
         async () => {
           const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
@@ -2892,31 +3073,37 @@ program
           try {
             await client.openTextDocument(abs);
 
-            return await client.request("textDocument/rename", {
+            const edit = await client.request("textDocument/rename", {
               textDocument: { uri },
               position: { line: parseIntStrict(line), character: parseIntStrict(col) },
               newName
             });
+
+            if (wantsApply && edit) {
+              const affectedUris = await applyWorkspaceEdit(edit);
+
+              if (saveAfterApply && affectedUris.length > 0) {
+                for (const u of affectedUris) {
+                  const fp = fileURLToPath(u);
+                  client.didSaveTextDocument(fp);
+                }
+
+                if (waitDiagMs > 0) {
+                  const diagnostics = await client.waitForDiagnostics(affectedUris, waitDiagMs);
+                  return { applied: true, diagnostics };
+                }
+              }
+
+              return { applied: true };
+            }
+
+            return edit;
           } finally {
             await client.shutdown();
           }
         },
         async (client) => {
-          if (wantsApply) {
-            const res = await client.request({
-              id: newRequestId("rename"),
-              cmd: "lsp/requestAndApply",
-              method: "textDocument/rename",
-              params: {
-                textDocument: { uri },
-                position: { line: parseIntStrict(line), character: parseIntStrict(col) },
-                newName
-              }
-            });
-            return (res as any)?.result;
-          }
-
-          return await client.request({
+          const edit = await client.request({
             id: newRequestId("rename"),
             cmd: "lsp/request",
             method: "textDocument/rename",
@@ -2926,16 +3113,35 @@ program
               newName
             }
           });
+
+          if (wantsApply && edit) {
+            // Daemon scenario: rename returns WorkspaceEdit directly (doesn't trigger workspace/applyEdit),
+            // so we must apply it ourselves.
+            const applyRes = await client.request({
+              id: newRequestId("renameApply"),
+              cmd: "lsp/requestAndApply",
+              method: "textDocument/rename",
+              params: {
+                textDocument: { uri },
+                position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+                newName
+              }
+            });
+            const editToApply = (applyRes as any)?.result ?? applyRes;
+            await applyWorkspaceEdit(editToApply);
+            return { applied: true };
+          }
+
+          return edit;
         }
       );
 
       if (wantsApply) {
-        if (edit) await applyWorkspaceEdit(edit);
-        output({ format: opts.format, jq: opts.jq }, { applied: true });
+        output({ format: opts.format, jq: opts.jq }, result);
         return;
       }
 
-      output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
+      output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(result) : result);
     }
   );
 
@@ -2954,6 +3160,8 @@ program
   .option("--first", "pick first match when multiple")
   .option("--fail-if-multiple", "fail when multiple matches")
   .option("--apply", "apply selected action (default is dry-run)")
+  .option("--save-after-apply", "send didSave for edited files after apply")
+  .option("--wait-diagnostics-ms <ms>", "wait for publishDiagnostics after didSave (opt-in)", "0")
   .addHelpText(
     "after",
     [
@@ -2996,6 +3204,8 @@ program
         first?: boolean;
         failIfMultiple?: boolean;
         apply?: boolean;
+        saveAfterApply?: boolean;
+        waitDiagnosticsMs?: string;
       }
     ) => {
       const opts = program.opts() as GlobalOpts;
@@ -3032,6 +3242,12 @@ program
       const uri = pathToFileUri(abs);
 
       const wantsApply = !!cmdOpts?.apply;
+      const saveAfterApply = !!cmdOpts?.saveAfterApply;
+      const waitDiagMs = parseIntStrict(String(cmdOpts?.waitDiagnosticsMs ?? "0"));
+
+      if (saveAfterApply && !wantsApply) {
+        throw new Error("--save-after-apply requires --apply");
+      }
 
       const actions = (await withDaemonFallback(
         opts,
@@ -3135,7 +3351,79 @@ program
       }
 
       if (selected.edit) {
-        await applyWorkspaceEdit(selected.edit);
+        const affectedUris = await applyWorkspaceEdit(selected.edit);
+
+        if (saveAfterApply && affectedUris.length > 0) {
+          await withDaemonFallback(
+            opts,
+            async () => {
+              if (waitDiagMs > 0) {
+                const client = new LspClient({ rootPath: root, server: profile });
+                await client.start();
+                try {
+                  // Send didSave for affected files. Note: openTextDocument would read the already-modified file.
+                  // We assume the files were already opened when fetching code actions.
+                  for (const u of affectedUris) {
+                    const fp = fileURLToPath(u);
+                    client.didSaveTextDocument(fp);
+                  }
+                  const diagnostics = await client.waitForDiagnostics(affectedUris, waitDiagMs);
+                  output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind, diagnostics });
+                  return;
+                } finally {
+                  await client.shutdown();
+                }
+              } else {
+                // Just send didSave without waiting
+                const client = new LspClient({ rootPath: root, server: profile });
+                await client.start();
+                try {
+                  for (const u of affectedUris) {
+                    const fp = fileURLToPath(u);
+                    client.didSaveTextDocument(fp);
+                  }
+                } finally {
+                  await client.shutdown();
+                }
+              }
+            },
+            async (client) => {
+              for (const u of affectedUris) {
+                await client.request({
+                  id: newRequestId("ds"),
+                  cmd: "lsp/notify",
+                  method: "textDocument/didSave",
+                  params: { textDocument: { uri: u } }
+                });
+              }
+              if (waitDiagMs > 0) {
+                const deadline = Date.now() + waitDiagMs;
+                let since = 0;
+                const collected: Record<string, unknown[]> = {};
+                while (Date.now() < deadline && Object.keys(collected).length < affectedUris.length) {
+                  const r = await client.request<{ nextCursor: number; events: any[] }>({
+                    id: newRequestId("ev"),
+                    cmd: "events/get",
+                    kind: "diagnostics",
+                    since,
+                    limit: 200
+                  });
+                  since = r.nextCursor;
+                  for (const e of r.events ?? []) {
+                    const eUri = String(e?.params?.uri ?? "");
+                    if (affectedUris.includes(eUri)) {
+                      collected[eUri] = Array.isArray(e?.params?.diagnostics) ? e.params.diagnostics : [];
+                    }
+                  }
+                  await sleep(25);
+                }
+                output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind, diagnostics: collected });
+                return;
+              }
+            }
+          );
+        }
+
         output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind });
         return;
       }
