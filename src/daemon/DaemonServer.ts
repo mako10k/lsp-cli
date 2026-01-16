@@ -26,6 +26,8 @@ export class DaemonServer {
   private readonly configPath?: string;
   private readonly serverCmd?: string;
 
+  private readonly daemonStartedAtMs = Date.now();
+
   private sockPath: string | null = null;
   private server: net.Server | null = null;
 
@@ -158,7 +160,15 @@ export class DaemonServer {
         return { ok: true };
 
       case "daemon/status":
-        return { alive: true, rootPath: this.rootPath, server: this.serverName };
+        return {
+          alive: true,
+          pid: process.pid,
+          startedAt: this.daemonStartedAtMs,
+          socketPath: this.getSocketPath(),
+          rootPath: this.rootPath,
+          serverName: this.serverName,
+          lsp: { running: !!this.client }
+        };
 
       case "daemon/log/get":
         return this.log.getStatus();
