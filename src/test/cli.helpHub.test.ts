@@ -56,7 +56,17 @@ test("cli per-command help includes appendices for common commands", async () =>
     "format-range",
     "rename",
     "code-actions",
-    "batch"
+    "batch",
+    "apply-edits",
+    "daemon-request",
+    "delete-symbol",
+    "events",
+    "daemon-status",
+    "daemon-stop",
+    "server-status",
+    "server-stop",
+    "server-restart",
+    "daemon-log"
   ];
 
   for (const cmd of cmds) {

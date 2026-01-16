@@ -599,6 +599,25 @@ program
   .command("daemon-log")
   .description("Get/set daemon log sink (requires running daemon). value: discard|default|<path>")
   .argument("[value]", "discard | default | <path>")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli daemon-log                 # show current log setting",
+      "  lsp-cli daemon-log discard         # discard daemon logs",
+      "  lsp-cli daemon-log default         # use default log file under runtime dir",
+      "  lsp-cli daemon-log <path>          # write logs to a file",
+      "",
+      "NOTES:",
+      "  - This talks to the daemon.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic daemon-log",
+      "  lsp-cli --root samples/rust-basic daemon-log default",
+      ""
+    ].join("\n")
+  )
   .action(async (value: string | undefined) => {
     const opts = program.opts() as GlobalOpts;
     const effective: GlobalOpts = value == null ? opts : { ...opts, daemonLog: value };
@@ -617,6 +636,22 @@ program
   .option("--kind <kind>", "event kind (diagnostics)", "diagnostics")
   .option("--since <cursor>", "only return events after cursor", "0")
   .option("--limit <n>", "max events to return (1-1000)", "200")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli events --kind diagnostics [--since <cursor>] [--limit <n>]",
+      "",
+      "NOTES:",
+      "  - Pull-based: daemon buffers server notifications (e.g. publishDiagnostics).",
+      "  - Use the returned cursor to incrementally fetch new events.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic events --kind diagnostics --since 0",
+      ""
+    ].join("\n")
+  )
   .action(async (cmdOpts) => {
     const opts = program.opts() as GlobalOpts;
     const kind = String(cmdOpts.kind ?? "diagnostics");
@@ -641,6 +676,18 @@ program
 program
   .command("daemon-status")
   .description("Get daemon process status and metadata")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli daemon-status",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic daemon-status",
+      ""
+    ].join("\n")
+  )
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const res = await withDaemonClient(opts, async (client) => {
@@ -652,6 +699,18 @@ program
 program
   .command("server-status")
   .description("Get daemon server (LSP) running status")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli server-status",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic server-status",
+      ""
+    ].join("\n")
+  )
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const res = await withDaemonClient(opts, async (client) => {
@@ -663,6 +722,21 @@ program
 program
   .command("server-stop")
   .description("Stop LSP server inside daemon (daemon stays running)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli server-stop",
+      "",
+      "NOTES:",
+      "  - Stops only the LSP server process; the daemon remains running.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic server-stop",
+      ""
+    ].join("\n")
+  )
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const res = await withDaemonClient(opts, async (client) => {
@@ -674,6 +748,21 @@ program
 program
   .command("server-restart")
   .description("Restart LSP server inside daemon")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli server-restart",
+      "",
+      "NOTES:",
+      "  - Restarts the LSP server and re-runs initialize inside the daemon.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic server-restart",
+      ""
+    ].join("\n")
+  )
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const res = await withDaemonClient(opts, async (client) => {
@@ -685,6 +774,21 @@ program
 program
   .command("daemon-stop")
   .description("Stop daemon process (will remove UDS socket)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli daemon-stop",
+      "",
+      "NOTES:",
+      "  - Stops the daemon itself (not just the LSP server).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic daemon-stop",
+      ""
+    ].join("\n")
+  )
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
 
@@ -705,6 +809,22 @@ program
   .description("Send an arbitrary LSP request via daemon (advanced/debug).")
   .requiredOption("--method <name>", "LSP method")
   .option("--params <json>", "JSON params (string)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli daemon-request --method <method> [--params '<json>']",
+      "",
+      "NOTES:",
+      "  - Sends lsp/request directly. Prefer dedicated subcommands when available.",
+      "  - --params is parsed as JSON.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic daemon-request --method workspace/symbol --params '{\"query\":\"add\"}'",
+      ""
+    ].join("\n")
+  )
   .action(async (cmdOpts) => {
     const opts = program.opts() as GlobalOpts;
     const method = String(cmdOpts.method);
@@ -721,6 +841,26 @@ program
   .command("apply-edits")
   .description("Apply a WorkspaceEdit JSON from stdin (default: dry-run)")
   .option("--apply", "apply edit to files")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  cat edit.json | lsp-cli apply-edits",
+      "  cat edit.json | lsp-cli apply-edits --apply",
+      "",
+      "NOTES:",
+      "  - Reads a WorkspaceEdit JSON object from stdin.",
+      "  - Default is dry-run; use --apply to modify files.",
+      "  - Do not use --stdin with apply-edits; stdin is reserved for the WorkspaceEdit itself.",
+      "",
+      "EXAMPLES:",
+      "  cat <<'JSON' | lsp-cli apply-edits",
+      "  {\"changes\":{\"file:///tmp/example.txt\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":0}},\"newText\":\"hello\"}]}}",
+      "  JSON",
+      ""
+    ].join("\n")
+  )
   .action(async (cmdOpts?: { apply?: boolean }) => {
     const opts = program.opts() as GlobalOpts;
 
@@ -2509,6 +2649,26 @@ program
   .option("--kind <kind>", "filter by symbol kind (e.g. function, class)")
   .option("--index <n>", "select match by index (0-based)")
   .option("--apply", "apply edit to files")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli delete-symbol <file> <symbolName> [--kind <kind>] [--index <n>]",
+      "  lsp-cli delete-symbol --stdin [--kind <kind>] [--index <n>]",
+      "",
+      "NOTES:",
+      "  - Uses textDocument/documentSymbol then deletes the chosen symbol's range.",
+      "  - Default is dry-run. Use --apply to change files.",
+      "  - If multiple matches exist, omit --index to list candidates.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic delete-symbol samples/rust-basic/src/math.rs add --apply",
+      "",
+      "  echo '{\"file\":\"samples/rust-basic/src/math.rs\",\"symbolName\":\"add\"}' | lsp-cli --root samples/rust-basic delete-symbol --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, symbolNameArg?: string, cmdOpts?: { kind?: string; index?: string; apply?: boolean }) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
