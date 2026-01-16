@@ -328,6 +328,7 @@ The config supports:
 - `presets`: reusable server config snippets (referenced by `preset`).
 - `servers`: custom server profiles and overrides. `command` is required for custom servers unless provided via a `preset`.
 - `augment`: extra overrides merged into both built-in and custom profiles. When augmenting built-ins, `command` is optional.
+- Per-server fields include `args`, `initializationOptions`, `languageIdByExt`/`defaultLanguageId`, `cwd`, `env`, `waitMs`, and `warmup`.
 
 Example: `.lsp-cli.json`
 

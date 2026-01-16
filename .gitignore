@@ -5,3 +5,5 @@ dist/
 
 # Rust sample build output
 samples/**/target/
+
+.lsp-cli.json

@@ -1921,7 +1921,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/references", {
@@ -2057,7 +2057,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/definition", {
@@ -2142,7 +2142,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/implementation", {
@@ -2225,7 +2225,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/typeDefinition", {
@@ -2357,7 +2357,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/hover", {
@@ -2491,7 +2491,7 @@ program
         try {
           await client.openTextDocument(abs);
 
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return await client.request("textDocument/signatureHelp", {
@@ -2614,7 +2614,7 @@ program
         const client = new LspClient({ rootPath: root, server: profile });
         await client.start();
         try {
-          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
           if (waitMs > 0) await sleep(waitMs);
 
           return (await client.request("workspace/symbol", { query })) as any[];
@@ -3264,7 +3264,7 @@ program
 
     let waitedOnce = false;
     const maybeWait = async () => {
-      const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+      const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "0"));
       if (waitMs <= 0) return;
       if (waitMode === "once") {
         if (waitedOnce) return;
