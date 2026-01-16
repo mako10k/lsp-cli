@@ -519,6 +519,10 @@ function printHelpCommands(): void {
       "",
       "Batch / advanced:",
       "  batch  daemon-request",
+      "",
+      "Experimental (daemon-only):",
+      "  symbols-daemon  references-daemon  definition-daemon  hover-daemon",
+      "  signature-help-daemon  ws-symbols-daemon",
       ""
     ].join("\n")
   );
@@ -2809,13 +2813,12 @@ program
 
 program
   .command("rename")
-  .description("textDocument/rename (default: --dry-run)")
+  .description("textDocument/rename (default: dry-run)")
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
   .argument("[newName]", "new name")
   .option("--apply", "apply WorkspaceEdit to files")
-  .option("--dry-run", "show planned edits only", true)
   .addHelpText(
     "after",
     [
@@ -2830,7 +2833,7 @@ program
       "  - line/col are 0-based (LSP compliant).",
       "",
       "EXAMPLES:",
-      "  # dry-run (show planned edits)",
+      "  # dry-run (preview planned edits)",
       "  lsp-cli --root samples/rust-basic rename src/math.rs 0 4 add",
       "",
       "  # apply edits", 

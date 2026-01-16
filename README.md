@@ -114,6 +114,9 @@ Global options must appear **before** the command for reliable parsing.
 
 ### Command index
 
+Core:
+- `ping`
+
 Read-only navigation:
 - `symbols`, `references`, `definition`, `type-definition`, `implementation`, `hover`, `signature-help`, `ws-symbols`
 
@@ -128,6 +131,9 @@ Daemon and operations:
 
 Batch / advanced:
 - `batch`, `daemon-request`
+
+Experimental (daemon-only; normally use non-suffixed commands):
+- `symbols-daemon`, `references-daemon`, `definition-daemon`, `hover-daemon`, `signature-help-daemon`, `ws-symbols-daemon`
 
 ### Read-only navigation
 
