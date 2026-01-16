@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 (2026-01-16)
+
+### Added
+- `--version` support.
+
+### Changed
+- `--format pretty` now prefers a human-readable representation for structured outputs (while `--jq` still processes JSON).
+- CLI/docs/help normalization:
+	- Expose `ping` in the README command index.
+	- Expose `*-daemon` commands as experimental (daemon-only) in help/README.
+	- Normalize `rename` help to “dry-run by default; use `--apply`” (remove `--dry-run`).
+
 ## 0.1.0 (2026-01-16)
 
 ### Added
