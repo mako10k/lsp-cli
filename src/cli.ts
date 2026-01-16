@@ -741,6 +741,25 @@ program
   .command("did-change-configuration")
   .description("workspace/didChangeConfiguration")
   .option("--settings <json>", "JSON settings object (string)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli did-change-configuration --settings '<json>'",
+      "  lsp-cli did-change-configuration --stdin",
+      "",
+      "NOTES:",
+      "  - Sends a notification; there is no LSP response payload.",
+      "  - Use --stdin to pass JSON without shell escaping issues.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic did-change-configuration --settings '{\"rust-analyzer\":{\"cargo\":{\"allFeatures\":true}}}'",
+      "",
+      "  echo '{\"settings\":{\"rust-analyzer\":{\"cargo\":{\"allFeatures\":true}}}}' | lsp-cli --root samples/rust-basic did-change-configuration --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (cmdOpts?: { settings?: string }) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -787,6 +806,25 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli prepare-rename <file> <line> <col>",
+      "  lsp-cli prepare-rename --stdin",
+      "",
+      "NOTES:",
+      "  - Use this before rename to verify the position is renameable.",
+      "  - line/col are 0-based (LSP compliant).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty prepare-rename src/main.rs 0 0",
+      "",
+      "  echo '{\"file\":\"src/main.rs\",\"line\":0,\"col\":0}' | lsp-cli --root samples/rust-basic prepare-rename --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -850,6 +888,27 @@ program
   .option("--apply", "apply edits to files")
   .option("--tab-size <n>", "tab size", "2")
   .option("--insert-spaces <bool>", "insert spaces", "true")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli format <file>",
+      "  lsp-cli format --apply <file>",
+      "  lsp-cli format --tab-size 4 --insert-spaces false <file>",
+      "  lsp-cli format --stdin",
+      "",
+      "NOTES:",
+      "  - Default is dry-run; apply changes only with --apply.",
+      "  - The server may return TextEdit[]; lsp-cli normalizes it to a WorkspaceEdit.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic format src/main.rs",
+      "",
+      "  lsp-cli --root samples/rust-basic format --apply src/main.rs",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, cmdOpts?: { apply?: boolean; tabSize?: string; insertSpaces?: string }) => {
     const opts = program.opts() as GlobalOpts;
 
@@ -930,6 +989,24 @@ program
   .option("--apply", "apply edits to files")
   .option("--tab-size <n>", "tab size", "2")
   .option("--insert-spaces <bool>", "insert spaces", "true")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli format-range <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli format-range --apply <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli format-range --stdin",
+      "",
+      "NOTES:",
+      "  - Default is dry-run; apply changes only with --apply.",
+      "  - line/col are 0-based (LSP compliant).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic format-range src/main.rs 0 0 10 0",
+      ""
+    ].join("\n")
+  )
   .action(
     async (
       fileArg?: string,
@@ -1039,6 +1116,23 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli completion <file> <line> <col>",
+      "  lsp-cli completion --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Result may be CompletionItem[] or CompletionList.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic completion src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1101,6 +1195,22 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli document-highlight <file> <line> <col>",
+      "  lsp-cli document-highlight --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic document-highlight src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1165,6 +1275,22 @@ program
   .argument("[startCol]", "0-based start column")
   .argument("[endLine]", "0-based end line")
   .argument("[endCol]", "0-based end column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli inlay-hints <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli inlay-hints --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic inlay-hints src/main.rs 0 0 10 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, startLineArg?: string, startColArg?: string, endLineArg?: string, endColArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1240,6 +1366,22 @@ program
   .command("semantic-tokens-full")
   .description("textDocument/semanticTokens/full")
   .argument("[file]", "file path, or '-' to read from stdin")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli semantic-tokens-full <file>",
+      "  lsp-cli semantic-tokens-full --stdin",
+      "",
+      "NOTES:",
+      "  - Returns server-specific encoded semantic tokens.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic semantic-tokens-full src/main.rs",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1290,6 +1432,22 @@ program
   .argument("[startCol]", "0-based start column")
   .argument("[endLine]", "0-based end line")
   .argument("[endCol]", "0-based end column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli semantic-tokens-range <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli semantic-tokens-range --stdin",
+      "",
+      "NOTES:",
+      "  - Returns server-specific encoded semantic tokens.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic semantic-tokens-range src/main.rs 0 0 10 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, startLineArg?: string, startColArg?: string, endLineArg?: string, endColArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1360,6 +1518,22 @@ program
   .description("textDocument/semanticTokens/full/delta")
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[previousResultId]", "previous resultId")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli semantic-tokens-delta <file> <previousResultId>",
+      "  lsp-cli semantic-tokens-delta --stdin",
+      "",
+      "NOTES:",
+      "  - Delta is supported only if the server returns resultId.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic semantic-tokens-delta src/main.rs <previousResultId>",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, previousResultIdArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1743,6 +1917,24 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli implementation <file> <line> <col>",
+      "  lsp-cli --format pretty implementation <file> <line> <col>",
+      "  lsp-cli implementation --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Result is typically a Location | Location[] | LocationLink[].",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty implementation src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1808,6 +2000,24 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli type-definition <file> <line> <col>",
+      "  lsp-cli --format pretty type-definition <file> <line> <col>",
+      "  lsp-cli type-definition --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Result is typically a Location | Location[] | LocationLink[].",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty type-definition src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());

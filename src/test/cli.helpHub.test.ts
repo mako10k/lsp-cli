@@ -35,7 +35,29 @@ test("cli help <command> delegates to command help", async () => {
 });
 
 test("cli per-command help includes appendices for common commands", async () => {
-  const cmds = ["symbols", "references", "definition", "hover", "signature-help", "ws-symbols", "rename", "code-actions", "batch"];
+  const cmds = [
+    "symbols",
+    "references",
+    "definition",
+    "type-definition",
+    "implementation",
+    "hover",
+    "signature-help",
+    "ws-symbols",
+    "completion",
+    "document-highlight",
+    "inlay-hints",
+    "semantic-tokens-full",
+    "semantic-tokens-range",
+    "semantic-tokens-delta",
+    "prepare-rename",
+    "did-change-configuration",
+    "format",
+    "format-range",
+    "rename",
+    "code-actions",
+    "batch"
+  ];
 
   for (const cmd of cmds) {
     const res = await runCli([cmd, "--help"]);
