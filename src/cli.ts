@@ -603,6 +603,196 @@ program
   });
 
 program
+  .command("format")
+  .description("textDocument/formatting (default: dry-run)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .option("--apply", "apply edits to files")
+  .option("--tab-size <n>", "tab size", "2")
+  .option("--insert-spaces <bool>", "insert spaces", "true")
+  .action(async (fileArg?: string, cmdOpts?: { apply?: boolean; tabSize?: string; insertSpaces?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string };
+      file = params.file;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const wantsApply = !!cmdOpts?.apply;
+    const formattingOptions = {
+      tabSize: parseIntStrict(String(cmdOpts?.tabSize ?? "2")),
+      insertSpaces: String(cmdOpts?.insertSpaces ?? "true") !== "false"
+    };
+
+    const normalizeToWorkspaceEdit = (res: any): any => {
+      if (res && (res.changes || res.documentChanges)) return res;
+      if (Array.isArray(res)) return { changes: { [uri]: res } };
+      if (res == null) return { changes: { [uri]: [] } };
+      throw new Error("unexpected formatting result (expected TextEdit[] or WorkspaceEdit)");
+    };
+
+    const edit = normalizeToWorkspaceEdit(
+      await withDaemonFallback(
+        opts,
+        async () => {
+          const root = path.resolve(opts.root ?? process.cwd());
+          const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+          await client.start();
+          try {
+            await client.openTextDocument(abs);
+            return await client.request("textDocument/formatting", {
+              textDocument: { uri },
+              options: formattingOptions
+            });
+          } finally {
+            await client.shutdown();
+          }
+        },
+        async (client) => {
+          return await client.request({
+            id: newRequestId("fmt"),
+            cmd: "lsp/request",
+            method: "textDocument/formatting",
+            params: {
+              textDocument: { uri },
+              options: formattingOptions
+            }
+          });
+        }
+      )
+    );
+
+    if (wantsApply) {
+      await applyWorkspaceEdit(edit);
+      output({ format: opts.format, jq: opts.jq }, { applied: true });
+      return;
+    }
+
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
+  });
+
+program
+  .command("format-range")
+  .description("textDocument/rangeFormatting (default: dry-run)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[startLine]", "0-based start line")
+  .argument("[startCol]", "0-based start column")
+  .argument("[endLine]", "0-based end line")
+  .argument("[endCol]", "0-based end column")
+  .option("--apply", "apply edits to files")
+  .option("--tab-size <n>", "tab size", "2")
+  .option("--insert-spaces <bool>", "insert spaces", "true")
+  .action(
+    async (
+      fileArg?: string,
+      startLineArg?: string,
+      startColArg?: string,
+      endLineArg?: string,
+      endColArg?: string,
+      cmdOpts?: { apply?: boolean; tabSize?: string; insertSpaces?: string }
+    ) => {
+      const opts = program.opts() as GlobalOpts;
+
+      let file = fileArg;
+      let startLine = startLineArg;
+      let startCol = startColArg;
+      let endLine = endLineArg;
+      let endCol = endColArg;
+
+      if (opts.stdin) {
+        const params = JSON.parse(await readAllStdin()) as {
+          file: string;
+          startLine: number;
+          startCol: number;
+          endLine: number;
+          endCol: number;
+        };
+        file = params.file;
+        startLine = String(params.startLine);
+        startCol = String(params.startCol);
+        endLine = String(params.endLine);
+        endCol = String(params.endCol);
+      } else if (file === "-") {
+        file = (await readAllStdin()).trim();
+      }
+
+      if (!file || startLine == null || startCol == null || endLine == null || endCol == null) {
+        throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
+      }
+
+      const abs = path.resolve(file);
+      const uri = pathToFileUri(abs);
+
+      const wantsApply = !!cmdOpts?.apply;
+      const formattingOptions = {
+        tabSize: parseIntStrict(String(cmdOpts?.tabSize ?? "2")),
+        insertSpaces: String(cmdOpts?.insertSpaces ?? "true") !== "false"
+      };
+
+      const range = {
+        start: { line: parseIntStrict(String(startLine)), character: parseIntStrict(String(startCol)) },
+        end: { line: parseIntStrict(String(endLine)), character: parseIntStrict(String(endCol)) }
+      };
+
+      const normalizeToWorkspaceEdit = (res: any): any => {
+        if (res && (res.changes || res.documentChanges)) return res;
+        if (Array.isArray(res)) return { changes: { [uri]: res } };
+        if (res == null) return { changes: { [uri]: [] } };
+        throw new Error("unexpected rangeFormatting result (expected TextEdit[] or WorkspaceEdit)");
+      };
+
+      const edit = normalizeToWorkspaceEdit(
+        await withDaemonFallback(
+          opts,
+          async () => {
+            const root = path.resolve(opts.root ?? process.cwd());
+            const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+            const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+            await client.start();
+            try {
+              await client.openTextDocument(abs);
+              return await client.request("textDocument/rangeFormatting", {
+                textDocument: { uri },
+                range,
+                options: formattingOptions
+              });
+            } finally {
+              await client.shutdown();
+            }
+          },
+          async (client) => {
+            return await client.request({
+              id: newRequestId("fmtr"),
+              cmd: "lsp/request",
+              method: "textDocument/rangeFormatting",
+              params: {
+                textDocument: { uri },
+                range,
+                options: formattingOptions
+              }
+            });
+          }
+        )
+      );
+
+      if (wantsApply) {
+        await applyWorkspaceEdit(edit);
+        output({ format: opts.format, jq: opts.jq }, { applied: true });
+        return;
+      }
+
+      output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
+    }
+  );
+
+program
   .command("symbols")
   .description("textDocument/documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")

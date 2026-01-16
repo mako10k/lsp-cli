@@ -127,6 +127,34 @@ async function onRequest(req: JsonRpcRequest) {
       ]);
     }
 
+    case "textDocument/formatting": {
+      const uri = req.params?.textDocument?.uri;
+      // Minimal deterministic formatting: rewrite the whole document.
+      // Return TextEdit[] (common in LSP) so the client can normalize if needed.
+      return respond(req.id, [
+        {
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          },
+          newText: "const x = 1\n"
+        }
+      ]);
+    }
+
+    case "textDocument/rangeFormatting": {
+      // Same behavior as formatting for tests (range is ignored in this mock).
+      return respond(req.id, [
+        {
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          },
+          newText: "const x = 1\n"
+        }
+      ]);
+    }
+
     case "workspace/executeCommand": {
       if (req.params?.command === "mock/applyEdit") {
         const arg0 = Array.isArray(req.params?.arguments) ? req.params.arguments[0] : null;
