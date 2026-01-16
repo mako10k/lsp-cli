@@ -489,6 +489,50 @@ program
   });
 
 program
+  .command("server-status")
+  .description("Get daemon server (LSP) running status")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/status" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("server-stop")
+  .description("Stop LSP server inside daemon (daemon stays running)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/stop" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("server-restart")
+  .description("Restart LSP server inside daemon")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/restart" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("daemon-stop")
+  .description("Stop daemon process (will remove UDS socket)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("stop"), cmd: "daemon/stop" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
   .command("daemon-request")
   .description("Send an arbitrary LSP request via daemon (advanced/debug).")
   .requiredOption("--method <name>", "LSP method")

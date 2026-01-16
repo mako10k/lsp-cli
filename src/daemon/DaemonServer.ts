@@ -148,7 +148,10 @@ export class DaemonServer {
   }
 
   private async handleRequest(req: DaemonRequest): Promise<any> {
-    if (!this.client) throw new Error("daemon not started");
+    // Daemon process may be alive even if the LSP server is stopped.
+    if (req.cmd !== "server/status" && req.cmd !== "server/restart" && req.cmd !== "server/stop" && !this.client) {
+      throw new Error("daemon not started");
+    }
 
     switch (req.cmd) {
       case "ping":
@@ -178,12 +181,14 @@ export class DaemonServer {
       }
 
       case "lsp/request": {
+        if (!this.client) throw new Error("LSP server is not running");
         if (!req.method) throw new Error("lsp/request requires method");
         await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
         return await this.client.request(String(req.method), req.params);
       }
 
       case "lsp/requestAndApply": {
+        if (!this.client) throw new Error("LSP server is not running");
         if (!req.method) throw new Error("lsp/requestAndApply requires method");
         await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
 
@@ -211,13 +216,26 @@ export class DaemonServer {
         return { stopped: true };
 
       case "server/status":
-        return { running: true };
+        return { running: !!this.client };
+
+      case "server/stop": {
+        if (!this.client) return { stopped: false, alreadyStopped: true };
+        await this.client.shutdown();
+        this.client = null;
+        return { stopped: true };
+      }
 
       case "server/restart": {
         const profile = getServerProfile(this.serverName, this.rootPath, this.configPath, this.serverCmd);
-        await this.client.shutdown();
+        if (this.client) {
+          await this.client.shutdown();
+        }
         this.client = new LspClient({ rootPath: this.rootPath, server: profile });
         await this.client.start();
+
+        this.client.onNotification("textDocument/publishDiagnostics", (params) => {
+          this.events.push("diagnostics", params);
+        });
         return { restarted: true };
       }
 

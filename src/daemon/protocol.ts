@@ -8,6 +8,7 @@ export type DaemonRequest =
   | { id: string; cmd: "lsp/requestAndApply"; method: string; params?: any }
   | { id: string; cmd: "daemon/stop" }
   | { id: string; cmd: "server/status" }
+  | { id: string; cmd: "server/stop" }
   | { id: string; cmd: "server/restart" };
 
 export function newRequestId(prefix = "req"): string {
