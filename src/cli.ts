@@ -39,7 +39,7 @@ async function connectDaemonWithAutostart(opts: GlobalOpts, socketPath: string):
     return await DaemonClient.connect(socketPath, CONNECT_TIMEOUT_MS);
   } catch {
     // Auto-start policy: only start implicitly. No explicit `daemon start` command.
-    const cliPath = path.resolve(process.argv[1] ?? "dist/cli.js");
+    const cliPath = resolveCliEntrypointPath();
     const root = path.resolve(opts.root ?? process.cwd());
     await spawnDaemonDetached({ cliPath, root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
 
@@ -55,6 +55,16 @@ async function connectDaemonWithAutostart(opts: GlobalOpts, socketPath: string):
     }
     throw lastErr ?? new Error(`timeout waiting for daemon to start: ${socketPath}`);
   }
+}
+
+function resolveCliEntrypointPath(): string {
+  const argv1 = process.argv[1];
+  const looksLikeCli = (p: string) => /(?:^|\/)(?:cli\.(?:js|cjs|mjs)|bin\.(?:js|cjs|mjs))$/.test(p);
+
+  if (argv1 && looksLikeCli(argv1)) return path.resolve(argv1);
+
+  // Node's test runner sets argv[1] to the test file, so prefer the known dist path.
+  return path.resolve(__dirname, "cli.js");
 }
 
 async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
@@ -425,19 +435,16 @@ program
     const client = new LspClient({ rootPath: root, server: profile });
     await client.start();
     await client.shutdown();
-
-    output({ format: opts.format, jq: opts.jq }, { ok: true });
   });
 
 program
   .command("daemon")
-  .description("Run the lsp-cli daemon (Unix socket server)")
+  .description("Run daemon server (internal; auto-started)")
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
     await runDaemonMain({ rootPath: root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
   });
-
 program
   .command("daemon-log")
   .description("Get/set daemon log sink (requires running daemon). value: discard|default|<path>")
@@ -903,22 +910,41 @@ program
       throw new Error("file/line/col are required (or use --stdin)");
     }
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
 
-    const res = await client.request("textDocument/hover", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
-    });
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
 
-    await client.shutdown();
+          return await client.request("textDocument/hover", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("hover"),
+          cmd: "lsp/request",
+          method: "textDocument/hover",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatHoverPretty(res) : res
@@ -999,23 +1025,40 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
-
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
-
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
 
-    const res = await client.request("textDocument/signatureHelp", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
-    });
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
 
-    await client.shutdown();
+          return await client.request("textDocument/signatureHelp", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("sig"),
+          cmd: "lsp/request",
+          method: "textDocument/signatureHelp",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
@@ -1088,14 +1131,29 @@ program
     }
     if (query == null) query = "";
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = (await client.request("workspace/symbol", { query })) as any[];
-    await client.shutdown();
+          return (await client.request("workspace/symbol", { query })) as any[];
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("wssym"),
+          cmd: "lsp/request",
+          method: "workspace/symbol",
+          params: { query }
+        });
+      }
+    );
 
     const limit = parseIntStrict(String(cmdOpts?.limit ?? "50"));
     const sliced = Array.isArray(res) ? res.slice(0, Math.max(0, limit)) : res;
