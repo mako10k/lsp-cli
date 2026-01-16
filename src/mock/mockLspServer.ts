@@ -194,6 +194,19 @@ async function onRequest(req: JsonRpcRequest) {
         activeParameter: 0
       });
 
+    case "textDocument/definition": {
+      const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      return respond(req.id, [
+        {
+          uri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          }
+        }
+      ]);
+    }
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }
