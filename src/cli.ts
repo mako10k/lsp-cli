@@ -2293,6 +2293,31 @@ program
   .argument("[newName]", "new name")
   .option("--apply", "apply WorkspaceEdit to files")
   .option("--dry-run", "show planned edits only", true)
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli rename <file> <line> <col> <newName>",
+      "  lsp-cli rename --apply <file> <line> <col> <newName>",
+      "  lsp-cli rename --stdin",
+      "",
+      "NOTES:",
+      "  - Default is dry-run; changes are applied only with --apply.",
+      "  - line/col are 0-based (LSP compliant).",
+      "",
+      "EXAMPLES:",
+      "  # dry-run (show planned edits)",
+      "  lsp-cli --root samples/rust-basic rename src/math.rs 0 4 add",
+      "",
+      "  # apply edits", 
+      "  lsp-cli --root samples/rust-basic rename --apply src/math.rs 0 4 add",
+      "",
+      "  # via --stdin (JSON)",
+      "  echo '{\"file\":\"src/math.rs\",\"line\":0,\"col\":4,\"newName\":\"add\"}' | lsp-cli --root samples/rust-basic rename --stdin",
+      ""
+    ].join("\n")
+  )
   .action(
     async (
       fileArg: string | undefined,
@@ -2403,6 +2428,33 @@ program
   .option("--first", "pick first match when multiple")
   .option("--fail-if-multiple", "fail when multiple matches")
   .option("--apply", "apply selected action (default is dry-run)")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli code-actions <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli code-actions --first --kind <prefix> <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli code-actions --apply --index <n> <file> <startLine> <startCol> <endLine> <endCol>",
+      "  lsp-cli code-actions --stdin",
+      "",
+      "NOTES:",
+      "  - Without selectors, prints a summarized list (index/title/kind/etc).",
+      "  - To apply, select exactly one action via --index or selectors + --first, then pass --apply.",
+      "  - Some servers return Command-only actions; lsp-cli will run workspace/executeCommand when needed.",
+      "",
+      "EXAMPLES:",
+      "  # list actions for a range",
+      "  lsp-cli --root samples/rust-basic --format pretty code-actions src/main.rs 0 0 0 10",
+      "",
+      "  # apply first quickfix action",
+      "  lsp-cli --root samples/rust-basic code-actions --apply --kind quickfix --first src/main.rs 0 0 0 10",
+      "",
+      "  # via --stdin (JSON)",
+      "  echo '{\"file\":\"src/main.rs\",\"startLine\":0,\"startCol\":0,\"endLine\":0,\"endCol\":10}' | lsp-cli --root samples/rust-basic code-actions --stdin",
+      ""
+    ].join("\n")
+  )
   .action(
     async (
       fileArg?: string,
@@ -2642,6 +2694,30 @@ program
   .option("--apply", "allow applying edits to files")
   .option("--continue-on-error", "keep going and emit {ok:false} on errors")
   .option("--wait-mode <once|each>", "how to apply --wait-ms (default: each)", "each")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli --root <root> --format json batch < requests.jsonl",
+      "  lsp-cli --root <root> --format json batch --apply < requests.jsonl",
+      "",
+      "NOTES:",
+      "  - batch reads JSONL from stdin (one JSON object per line).",
+      "  - Do not use --stdin with batch; use shell redirection/pipes.",
+      "  - batch requires --format json and does not support --jq.",
+      "  - Edits are only applied if both: batch started with --apply AND the request has {" +
+        "\"apply\":true}.",
+      "  - Supported cmds include: ping, request, notify, symbols, references, definition, implementation, type-definition, hover, signature-help, ws-symbols, rename, delete-symbol, code-actions.",
+      "",
+      "EXAMPLE:",
+      "  cat <<'JSONL' | lsp-cli --root samples/rust-basic --format json batch",
+      "  {\"id\":1,\"cmd\":\"definition\",\"file\":\"src/main.rs\",\"line\":0,\"col\":0}",
+      "  {\"id\":2,\"cmd\":\"ws-symbols\",\"query\":\"add\"}",
+      "  JSONL",
+      ""
+    ].join("\n")
+  )
   .action(async (cmdOpts?: { apply?: boolean; continueOnError?: boolean; waitMode?: string }) => {
     const opts = program.opts() as GlobalOpts;
 
