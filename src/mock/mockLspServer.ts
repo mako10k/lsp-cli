@@ -254,6 +254,13 @@ async function onRequest(req: JsonRpcRequest) {
         }
       ]);
 
+    case "textDocument/semanticTokens/full":
+      return respond(req.id, {
+        resultId: "mock",
+        // [deltaLine, deltaStart, length, tokenType, tokenModifiers]
+        data: [0, 0, 5, 0, 0]
+      });
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [
