@@ -207,6 +207,23 @@ async function onRequest(req: JsonRpcRequest) {
       ]);
     }
 
+    case "workspace/symbol": {
+      const query = typeof req.params?.query === "string" ? req.params.query : "";
+      return respond(req.id, [
+        {
+          name: query ? `mock:${query}` : "mock",
+          kind: 1,
+          location: {
+            uri: "file:///mock",
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 0 }
+            }
+          }
+        }
+      ]);
+    }
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }

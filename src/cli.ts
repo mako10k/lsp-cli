@@ -1081,6 +1081,41 @@ program
   });
 
 program
+  .command("ws-symbols-daemon")
+  .description("workspace/symbol via daemon (experimental)")
+  .argument("[query]", "search query (or '-' to read from stdin)")
+  .option("--limit <n>", "limit results", "50")
+  .action(async (queryArg?: string, cmdOpts?: { limit?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let query = queryArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { query: string };
+      query = params.query;
+    } else if (query === "-") {
+      query = (await readAllStdin()).trim();
+    }
+    if (query == null) query = "";
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("wssym"),
+        cmd: "lsp/request",
+        method: "workspace/symbol",
+        params: { query }
+      });
+    });
+
+    const limit = parseIntStrict(String(cmdOpts?.limit ?? "50"));
+    const sliced = Array.isArray(res) ? res.slice(0, Math.max(0, limit)) : res;
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatWorkspaceSymbolsPretty(sliced) : sliced
+    );
+  });
+
+program
   .command("delete-symbol")
   .description("delete a symbol/block by name using documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")
