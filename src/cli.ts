@@ -405,13 +405,26 @@ function output(opts: { format: OutputFormat; jq?: string }, value: unknown) {
     return;
   }
 
-  process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+  // pretty mode: default to a human-readable representation.
+  // Some commands return structured JSON that has no bespoke pretty formatter.
+  // For those, show it via util.inspect to avoid printing strict JSON.
+  const inspect = require("node:util").inspect as (v: unknown, o?: any) => string;
+  process.stdout.write(
+    inspect(value, {
+      depth: null,
+      colors: process.stdout.isTTY,
+      compact: false,
+      maxArrayLength: null,
+      maxStringLength: null
+    }) + "\n"
+  );
 }
 
 const program = new Command();
 program
   .name("lsp-cli")
   .description("Lightweight CLI for driving LSP servers (MVP: rust-analyzer)")
+  .version(require("../package.json").version)
   .option("--server <name>", "server profile name", "rust-analyzer")
   .option("--server-cmd <cmd>", "override server command (e.g. 'rust-analyzer')")
   .option("--config <path>", "config file path (default: <root>/.lsp-cli.json or <root>/lsp-cli.config.json)")
