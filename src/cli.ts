@@ -504,6 +504,17 @@ program
   });
 
 program
+  .command("daemon-status")
+  .description("Get daemon process status and metadata")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("daemon"), cmd: "daemon/status" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
   .command("server-status")
   .description("Get daemon server (LSP) running status")
   .action(async () => {
