@@ -170,6 +170,14 @@ async function onRequest(req: JsonRpcRequest) {
       return respond(req.id, { sent: true });
     }
 
+    case "textDocument/hover":
+      return respond(req.id, {
+        contents: {
+          kind: "plaintext",
+          value: "mock hover"
+        }
+      });
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }
