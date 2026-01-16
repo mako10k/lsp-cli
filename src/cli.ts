@@ -506,6 +506,26 @@ program
   });
 
 program
+  .command("apply-edits")
+  .description("Apply a WorkspaceEdit JSON from stdin (default: dry-run)")
+  .option("--apply", "apply edit to files")
+  .action(async (cmdOpts?: { apply?: boolean }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    if (opts.stdin) throw new Error("apply-edits reads WorkspaceEdit JSON from stdin; do not use --stdin");
+    const raw = await readAllStdin();
+    const edit = JSON.parse(raw || "null");
+
+    if (cmdOpts?.apply) {
+      await applyWorkspaceEdit(edit);
+      output({ format: opts.format, jq: opts.jq }, { applied: true });
+      return;
+    }
+
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
+  });
+
+program
   .command("symbols")
   .description("textDocument/documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")
