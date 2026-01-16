@@ -30,4 +30,17 @@ test("cli help <command> delegates to command help", async () => {
   assert.equal(res.code, 0);
   assert.match(res.stdout, /Usage: lsp-cli symbols/);
   assert.match(res.stdout, /textDocument\/documentSymbol/);
+  assert.match(res.stdout, /USAGE:/);
+  assert.match(res.stdout, /EXAMPLES:/);
+});
+
+test("cli per-command help includes appendices for common commands", async () => {
+  const cmds = ["symbols", "references", "definition", "hover", "signature-help", "ws-symbols", "rename", "code-actions", "batch"];
+
+  for (const cmd of cmds) {
+    const res = await runCli([cmd, "--help"]);
+    assert.equal(res.code, 0, `${cmd} --help should exit 0`);
+    assert.match(res.stdout, /USAGE:/, `${cmd} help should include USAGE`);
+    assert.match(res.stdout, /EXAMPLES?:/, `${cmd} help should include EXAMPLE(S)`);
+  }
 });

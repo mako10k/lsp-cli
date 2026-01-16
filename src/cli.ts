@@ -1411,6 +1411,27 @@ program
   .command("symbols")
   .description("textDocument/documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli symbols <file>",
+      "  lsp-cli symbols --stdin",
+      "",
+      "NOTES:",
+      "  - With --format pretty, prints an outline-like view.",
+      "  - Pass '-' as <file> to read a file path from stdin.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty symbols src/main.rs",
+      "",
+      "  echo 'src/main.rs' | lsp-cli --root samples/rust-basic symbols -",
+      "",
+      "  echo '{\"file\":\"src/main.rs\"}' | lsp-cli --root samples/rust-basic symbols --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string) => {
     const opts = program.opts() as GlobalOpts;
 
@@ -1498,6 +1519,27 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli references <file> <line> <col>",
+      "  lsp-cli --format pretty references <file> <line> <col>",
+      "  lsp-cli references --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - This command includes declarations (includeDeclaration=true).",
+      "  - Use --wait-ms if the server needs warm-up.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty references src/main.rs 0 0",
+      "",
+      "  echo '{\"file\":\"src/main.rs\",\"line\":0,\"col\":0}' | lsp-cli --root samples/rust-basic references --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1614,6 +1656,26 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli definition <file> <line> <col>",
+      "  lsp-cli --format pretty definition <file> <line> <col>",
+      "  lsp-cli definition --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Result is typically a Location | Location[] | LocationLink[].",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty definition src/main.rs 0 0",
+      "",
+      "  echo '{\"file\":\"src/main.rs\",\"line\":0,\"col\":0}' | lsp-cli --root samples/rust-basic definition --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1858,6 +1920,25 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli hover <file> <line> <col>",
+      "  lsp-cli hover --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - With --format pretty, formats MarkupContent for readability.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty hover src/main.rs 0 0",
+      "",
+      "  echo '{\"file\":\"src/main.rs\",\"line\":0,\"col\":0}' | lsp-cli --root samples/rust-basic hover --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -1974,6 +2055,25 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .argument("[line]", "0-based line")
   .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli signature-help <file> <line> <col>",
+      "  lsp-cli signature-help --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Some servers need a warm-up; adjust --wait-ms if needed.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty signature-help src/main.rs 0 0",
+      "",
+      "  echo '{\"file\":\"src/main.rs\",\"line\":0,\"col\":0}' | lsp-cli --root samples/rust-basic signature-help --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
@@ -2087,6 +2187,28 @@ program
   .description("workspace/symbol")
   .argument("[query]", "search query (or '-' to read from stdin)")
   .option("--limit <n>", "limit results", "50")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli ws-symbols [query]",
+      "  lsp-cli ws-symbols -              # read query from stdin",
+      "  lsp-cli ws-symbols --stdin",
+      "",
+      "NOTES:",
+      "  - This searches the whole workspace (server-defined).",
+      "  - Use --limit to cap results (default: 50).",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic --format pretty ws-symbols add",
+      "",
+      "  echo 'add' | lsp-cli --root samples/rust-basic ws-symbols -",
+      "",
+      "  echo '{\"query\":\"add\"}' | lsp-cli --root samples/rust-basic ws-symbols --stdin",
+      ""
+    ].join("\n")
+  )
   .action(async (queryArg?: string, cmdOpts?: { limit?: string }) => {
     const opts = program.opts() as GlobalOpts;
     const root = path.resolve(opts.root ?? process.cwd());
