@@ -32,6 +32,10 @@ export class LspClient {
   private textDocumentSyncKind: number | null = null;
   private readonly openedDocs = new Map<string, TextDocumentItem>();
 
+  private readonly notificationHandlers = new Map<string, Array<(params: any) => void>>();
+
+  private readonly requestHandlers = new Map<string, (params: any) => Promise<any>>();
+
   constructor(opts: { rootPath: string; server: ServerProfile; applyEdits?: boolean }) {
     this.rootPath = opts.rootPath;
     this.server = opts.server;
@@ -56,10 +60,25 @@ export class LspClient {
     const writer = new StreamMessageWriter(this.proc.stdin);
     this.conn = createMessageConnection(reader, writer);
 
-    this.conn.onRequest("workspace/applyEdit", async (params: any) => {
-      if (!this.applyEdits) {
-        return { applied: false, failureReason: "client is in dry-run mode" };
+    // Allow consumers (daemon) to subscribe to server notifications.
+    // Handlers are best-effort and must not throw.
+    this.conn.onNotification((method: string, params: any) => {
+      const handlers = this.notificationHandlers.get(method);
+      if (!handlers) return;
+      for (const h of handlers) {
+        try {
+          h(params);
+        } catch {
+          // ignore
+        }
       }
+    });
+
+    this.conn.onRequest("workspace/applyEdit", async (params: any) => {
+      const manual = this.requestHandlers.get("workspace/applyEdit");
+      if (manual) return await manual(params);
+
+      if (!this.applyEdits) return { applied: false, failureReason: "client is in dry-run mode" };
       try {
         await applyWorkspaceEdit(params?.edit);
         return { applied: true };
@@ -250,6 +269,27 @@ export class LspClient {
       return;
     }
     this.conn.sendNotification(method as any, params as any);
+  }
+
+  onNotification(method: string, handler: (params: any) => void): () => void {
+    const arr = this.notificationHandlers.get(method) ?? [];
+    arr.push(handler);
+    this.notificationHandlers.set(method, arr);
+    return () => {
+      const cur = this.notificationHandlers.get(method);
+      if (!cur) return;
+      const next = cur.filter((x) => x !== handler);
+      if (next.length) this.notificationHandlers.set(method, next);
+      else this.notificationHandlers.delete(method);
+    };
+  }
+
+  onRequest(method: string, handler: (params: any) => Promise<any>): () => void {
+    this.requestHandlers.set(method, handler);
+    return () => {
+      const cur = this.requestHandlers.get(method);
+      if (cur === handler) this.requestHandlers.delete(method);
+    };
   }
 }
 

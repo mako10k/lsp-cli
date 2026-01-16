@@ -163,6 +163,67 @@ async function onRequest(req: JsonRpcRequest) {
     case "mock/getInitializeCount":
       return respond(req.id, initializeCount);
 
+    case "mock/sendDiagnostics": {
+      const uri = req.params?.uri;
+      const diagnostics = Array.isArray(req.params?.diagnostics) ? req.params.diagnostics : [];
+      writeMessage({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
+      return respond(req.id, { sent: true });
+    }
+
+    case "textDocument/hover":
+      return respond(req.id, {
+        contents: {
+          kind: "plaintext",
+          value: "mock hover"
+        }
+      });
+
+    case "textDocument/signatureHelp":
+      return respond(req.id, {
+        signatures: [
+          {
+            label: "mockSignature(a: number)",
+            documentation: {
+              kind: "plaintext",
+              value: "mock signature help"
+            },
+            parameters: [{ label: "a" }]
+          }
+        ],
+        activeSignature: 0,
+        activeParameter: 0
+      });
+
+    case "textDocument/definition": {
+      const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      return respond(req.id, [
+        {
+          uri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          }
+        }
+      ]);
+    }
+
+    case "workspace/symbol": {
+      const query = typeof req.params?.query === "string" ? req.params.query : "";
+      return respond(req.id, [
+        {
+          name: query ? `mock:${query}` : "mock",
+          kind: 1,
+          location: {
+            uri: "file:///mock",
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 0 }
+            }
+          }
+        }
+      ]);
+    }
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }

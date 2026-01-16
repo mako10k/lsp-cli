@@ -19,8 +19,9 @@
 
 ## 3. 非スコープ（当面やらない）
 - エディタ統合（VSCode等）
-- 常駐デーモン（watchモード）
 - 複雑なプロジェクト自動検出（必要最小限に留める）
+
+※ 方針更新: 単発CLIの起動コスト削減と通知(PUSH)の取り回しのため、「常駐デーモン」をスコープに含める。
 
 ## 4. 方式（アーキテクチャ）
 ### 4.1 構成方針
@@ -28,23 +29,52 @@
   **サーバプロファイル**（起動コマンド、initialize options、languageId判定等）を分離する。
 - LSPサーバの差し替えは「プロファイル追加」で完結させる（可能な限り）。
 
+### 4.1.1 新アーキテクチャ: daemon(常駐) + client(単発)
+- 目的:
+  - 毎回の `initialize/initialized` 等のオーバーヘッド削減（同一rootでセッションを再利用）
+  - サーバからの通知(PUSH)を「CLIの同期I/Oモデル」に無理に混ぜず、**イベントとして分離**する
+- 方式:
+  - `lsp-cli daemon` が LSP サーバ（stdio）に接続して常駐する
+  - `lsp-cli <command>` は daemon に接続して request/response を行う（既存のCLI I/Fを基本踏襲）
+  - daemon は LSP 通知を受け取り、ローカルにキューして **pull型** で取得できるようにする
+
 ### 4.2 LSPコア（共通）
 - transport: stdio
 - protocol: JSON-RPC 2.0 + LSP framing（`Content-Length`）
 - 主要責務:
   - サーバ起動/終了（initialize/initialized/shutdown/exit）
   - request id の採番と response の待ち合わせ
-  - `$/progress` 等の通知は捨ててもよい（まずはログ）
   - `workspace/applyEdit` を受け取る/自前で適用する方針は後述
+
+#### 4.2.1 通知(PUSH)の扱い: events として分離
+- クライアント側が LSP 通知をリアルタイムに扱う代わりに、daemon が通知を受けて蓄積する。
+- CLI は `events` コマンドでイベントを取得する（種類フィルタ付き）。
+- 例（対象通知の候補）:
+  - `textDocument/publishDiagnostics`（構文エラー等）
+  - `window/logMessage` / `window/showMessage`
+  - `$/progress`
 
 ### 4.3 ワークスペース/ファイル管理（共通）
 - `--root <path>` を基本にし、未指定なら `cwd` をroot扱い。
 - ファイル入力は原則パス、位置指定は (line, col) で受ける（0/1-indexは要統一）。
 - `textDocument/didOpen` は必要なファイルのみ送る（MVPはオンデマンド）。
 
+#### 4.3.1 daemon endpoint の配置（推奨）
+- 基本要件: **workspace(root)ごとに独立**し、かつリポジトリを汚さない。
+- 推奨配置（デフォルト）:
+  - `$XDG_RUNTIME_DIR/lsp-cli/<hash(root)>/sock`（なければ `os.tmpdir()` 配下に同様）
+  - `hash(root)` は realpath(root) 等の安定な値から導出する
+- オプション配置（必要なら）:
+  - `<root>/.lsp-cli/sock`（ただし `/.lsp-cli/` を `.gitignore` で無視する前提）
+
 ### 4.4 変更適用（WorkspaceEdit）
 - リファクタ結果は LSP の `WorkspaceEdit`（主に `changes` / `documentChanges`）を解釈して適用。
 - 安全のためデフォルトは `--dry-run`（差分表示/JSON）で、`--apply` 明示時のみ書き込み。
+
+#### 4.4.1 変更適用コマンド（追加）
+- `apply-edits`（仮）: `TextEdit` / `WorkspaceEdit` の適用を明示的に行う。
+  - `--apply` 指定時のみ書き換え（デフォルトはdry-runでプレビュー）
+  - daemon経由の適用と、単発(従来)の適用の両方を許容
 
 ### 4.5 サーバプロファイル（差し替えポイント）
 プロファイルが持つ情報（案）:
@@ -72,6 +102,22 @@
   - 入力: `--stdin` でstdinからJSONを読んでコマンド引数を与える
   - 出力: `--jq '<filter>'` でJSON出力を `jq` に通して抽出/整形できる（`jq` がPATHに必要）
 
+### 6.1 追加コマンド案（daemon運用）
+- daemon起動:
+  - 明示的な `daemon start` コマンドは持たず、CLIが必要に応じて **暗黙に起動**する（daemon優先→失敗時フォールバック）
+- `events`:
+  - daemonが蓄積した通知イベントを取得する
+  - 例: `--kind diagnostics|log|progress` のような種類別フィルタ
+  - 例: `--since <cursor>` により差分取得（カーソルは単調増加IDを想定）
+- `server-status`:
+  - daemon内のLSPサーバ状態を返す（runningなど）
+- `server-stop` / `server-restart`:
+  - `server-stop`: daemonは生存したまま **LSPセッションのみ停止**する（この後、通常のコマンド実行で必要なら自動的に起動される）
+  - `server-restart`: LSPセッションを **initializeからやり直す**（停止中でも実行できる）
+  - クライアントから安全にトリガできるようにする
+- `daemon-stop`:
+  - daemonプロセスを停止する
+
 ## 7. 合意事項（2026-01-15）
 - 実装言語: **Node.js + TypeScript**（LSP/JSON-RPC周りのSDKが充実しているため。例: `vscode-jsonrpc`）
 - 出力: `--format json|pretty` で切替
@@ -85,3 +131,9 @@
 - M2: `rename`（WorkspaceEditのdry-run/適用）
 - M3: `codeAction` 一覧 + 1件適用
 - M4: プロファイル追加で別LSP（例: pyright/gopls）に切替できることを確認
+
+## 9. マイルストーン（daemon化）
+- D0: `daemon` 起動 + `request` 経由で `initialize` は一度だけ
+- D1: `events` で `publishDiagnostics` 等をpull型で取得
+- D2: `server restart/stop` を追加
+- D3: `apply-edits` を追加（dry-run/適用）

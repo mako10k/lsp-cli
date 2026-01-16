@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-test("cli code-actions can auto-select by kind/title and apply", { timeout: 10_000 }, async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-cli-"));
+test("cli code-actions prefers daemon and can apply", { timeout: 10_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-code-actions-daemon-"));
   const file = path.join(root, "a.txt");
   await fs.writeFile(file, "hello\n", "utf8");
 
@@ -35,9 +35,28 @@ test("cli code-actions can auto-select by kind/title and apply", { timeout: 10_0
 
   // Apply the edit-based action (preferred)
   {
-    const res = spawnSync(process.execPath, [cli, "--root", root, "--server", "mock", "--format", "json", "code-actions", file, "0", "0", "0", "0", "--apply", "--preferred", "--first"], {
-      encoding: "utf8"
-    });
+    const res = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "--root",
+        root,
+        "--server",
+        "mock",
+        "--format",
+        "json",
+        "code-actions",
+        file,
+        "0",
+        "0",
+        "0",
+        "0",
+        "--apply",
+        "--preferred",
+        "--first"
+      ],
+      { encoding: "utf8" }
+    );
     assert.equal(res.status, 0, res.stderr);
     const out = JSON.parse(res.stdout);
     assert.equal(out.applied, true);
@@ -49,9 +68,29 @@ test("cli code-actions can auto-select by kind/title and apply", { timeout: 10_0
 
   // Apply the command-based action by kind
   {
-    const res = spawnSync(process.execPath, [cli, "--root", root, "--server", "mock", "--format", "json", "code-actions", file, "0", "0", "0", "0", "--apply", "--kind", "refactor.mock", "--first"], {
-      encoding: "utf8"
-    });
+    const res = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "--root",
+        root,
+        "--server",
+        "mock",
+        "--format",
+        "json",
+        "code-actions",
+        file,
+        "0",
+        "0",
+        "0",
+        "0",
+        "--apply",
+        "--kind",
+        "refactor.mock.command",
+        "--first"
+      ],
+      { encoding: "utf8" }
+    );
     assert.equal(res.status, 0, res.stderr);
     const out = JSON.parse(res.stdout);
     assert.equal(out.applied, true);
@@ -61,14 +100,15 @@ test("cli code-actions can auto-select by kind/title and apply", { timeout: 10_0
     assert.equal(updated, "CEhello\n");
   }
 
-  // Dry-run select by title-regex
+  // ensure daemon session got reused (initialize count should be 1)
   {
-    const res = spawnSync(process.execPath, [cli, "--root", root, "--server", "mock", "--format", "json", "code-actions", file, "0", "0", "0", "0", "--title-regex", "Mock edit", "--first"], {
-      encoding: "utf8"
-    });
+    const res = spawnSync(
+      process.execPath,
+      [cli, "--root", root, "--server", "mock", "--format", "json", "daemon-request", "--method", "mock/getInitializeCount"],
+      { encoding: "utf8" }
+    );
     assert.equal(res.status, 0, res.stderr);
     const out = JSON.parse(res.stdout);
-    assert.equal(out.dryRun, true);
-    assert.equal(out.index, 0);
+    assert.equal(out, 1);
   }
 });

@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,11 @@ import { LspClient } from "./lsp/LspClient";
 import { getServerProfile } from "./servers";
 import { applyWorkspaceEdit, formatWorkspaceEditPretty } from "./lsp/workspaceEdit";
 import { pathToFileUri } from "./util/paths";
+import { runDaemonMain } from "./daemon/daemonMain";
+import { DaemonClient } from "./daemon/DaemonClient";
+import { newRequestId } from "./daemon/protocol";
+import { resolveDaemonEndpoint } from "./util/endpoint";
+import { spawnDaemonDetached } from "./daemon/autostart";
 
 type OutputFormat = "json" | "pretty";
 
@@ -21,7 +27,78 @@ type GlobalOpts = {
   stdin?: boolean;
   jq?: string;
   waitMs?: string;
+  daemonLog?: string;
 };
+
+async function connectDaemonWithAutostart(opts: GlobalOpts, socketPath: string): Promise<DaemonClient> {
+  const CONNECT_TIMEOUT_MS = 1500;
+  const AUTOSTART_TOTAL_TIMEOUT_MS = 5000;
+
+  const deadline = Date.now() + AUTOSTART_TOTAL_TIMEOUT_MS;
+
+  try {
+    return await DaemonClient.connect(socketPath, CONNECT_TIMEOUT_MS);
+  } catch {
+    // Auto-start policy: only start implicitly. No explicit `daemon start` command.
+    const cliPath = resolveCliEntrypointPath();
+    const root = path.resolve(opts.root ?? process.cwd());
+    await spawnDaemonDetached({ cliPath, root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
+
+    // Retry a few times while the daemon binds the socket.
+    let lastErr: unknown;
+    while (Date.now() < deadline) {
+      await sleep(100);
+      try {
+        return await DaemonClient.connect(socketPath, CONNECT_TIMEOUT_MS);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr ?? new Error(`timeout waiting for daemon to start: ${socketPath}`);
+  }
+}
+
+function resolveCliEntrypointPath(): string {
+  const argv1 = process.argv[1];
+  const looksLikeCli = (p: string) => /(?:^|\/)(?:cli\.(?:js|cjs|mjs)|bin\.(?:js|cjs|mjs))$/.test(p);
+
+  if (argv1 && looksLikeCli(argv1)) return path.resolve(argv1);
+
+  // Node's test runner sets argv[1] to the test file, so prefer the known dist path.
+  return path.resolve(__dirname, "cli.js");
+}
+
+async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
+  const root = path.resolve(opts.root ?? process.cwd());
+  const serverName = opts.server;
+  const { socketPath, defaultLogPath } = resolveDaemonEndpoint(root, serverName);
+
+  const client = await connectDaemonWithAutostart(opts, socketPath);
+  try {
+    if (typeof opts.daemonLog === "string") {
+      const v = opts.daemonLog.trim();
+      if (!v || v === "discard") {
+        await client.request({ id: newRequestId("log"), cmd: "daemon/log/set", mode: "discard" });
+      } else {
+        const p = v === "default" ? defaultLogPath : v;
+        await client.request({ id: newRequestId("log"), cmd: "daemon/log/set", mode: "file", path: p });
+      }
+    }
+    return await fn(client, socketPath, defaultLogPath);
+  } finally {
+    client.close();
+  }
+}
+
+async function withDaemonFallback<T>(opts: GlobalOpts, runDirect: () => Promise<T>, runDaemon: (client: DaemonClient) => Promise<T>): Promise<T> {
+  try {
+    return await withDaemonClient(opts, async (client) => {
+      return await runDaemon(client);
+    });
+  } catch {
+    return await runDirect();
+  }
+}
 
 async function readAllStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -30,6 +107,20 @@ async function readAllStdin(): Promise<string> {
     process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     process.stdin.on("error", reject);
   });
+}
+
+async function waitForDaemonSocketGone(socketPath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fs.promises.stat(socketPath);
+    } catch {
+      // stat failed -> likely gone
+      return;
+    }
+    await sleep(50);
+  }
+  throw new Error(`timeout waiting for daemon socket to disappear: ${socketPath}`);
 }
 
 function parseIntStrict(v: string): number {
@@ -329,6 +420,7 @@ program
   .option("--stdin", "read command input params from stdin as JSON")
   .option("--jq <filter>", "pipe JSON output through jq filter (requires jq in PATH)")
   .option("--wait-ms <n>", "wait before some requests (ms; helps rust-analyzer warm-up)", "500")
+  .option("--daemon-log <path>", "daemon log path (auto-start); default discards logs")
   .addHelpText(
     "after",
     [
@@ -358,8 +450,145 @@ program
     const client = new LspClient({ rootPath: root, server: profile });
     await client.start();
     await client.shutdown();
+  });
 
-    output({ format: opts.format, jq: opts.jq }, { ok: true });
+program
+  .command("daemon")
+  .description("Run daemon server (internal; auto-started)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    await runDaemonMain({ rootPath: root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
+  });
+program
+  .command("daemon-log")
+  .description("Get/set daemon log sink (requires running daemon). value: discard|default|<path>")
+  .argument("[value]", "discard | default | <path>")
+  .action(async (value: string | undefined) => {
+    const opts = program.opts() as GlobalOpts;
+    const effective: GlobalOpts = value == null ? opts : { ...opts, daemonLog: value };
+
+    const res = await withDaemonClient(effective, async (client, socketPath, defaultLogPath) => {
+      const status = await client.request({ id: newRequestId("log-get"), cmd: "daemon/log/get" });
+      return { socketPath, defaultLogPath, log: status };
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("events")
+  .description("Pull events from daemon (e.g. diagnostics).")
+  .option("--kind <kind>", "event kind (diagnostics)", "diagnostics")
+  .option("--since <cursor>", "only return events after cursor", "0")
+  .option("--limit <n>", "max events to return (1-1000)", "200")
+  .action(async (cmdOpts) => {
+    const opts = program.opts() as GlobalOpts;
+    const kind = String(cmdOpts.kind ?? "diagnostics");
+    if (kind !== "diagnostics") throw new Error(`unsupported kind: ${kind}`);
+
+    const since = parseIntStrict(String(cmdOpts.since ?? "0"));
+    const limit = parseIntStrict(String(cmdOpts.limit ?? "200"));
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("events"),
+        cmd: "events/get",
+        kind: "diagnostics",
+        since,
+        limit
+      });
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("server-status")
+  .description("Get daemon server (LSP) running status")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/status" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("server-stop")
+  .description("Stop LSP server inside daemon (daemon stays running)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/stop" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("server-restart")
+  .description("Restart LSP server inside daemon")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("srv"), cmd: "server/restart" });
+    });
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("daemon-stop")
+  .description("Stop daemon process (will remove UDS socket)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+
+    const root = path.resolve(opts.root ?? process.cwd());
+    const { socketPath } = resolveDaemonEndpoint(root, opts.server);
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("stop"), cmd: "daemon/stop" });
+    });
+
+    // Best-effort guarantee: after daemon-stop returns, wait for the socket to be removed.
+    await waitForDaemonSocketGone(socketPath, 2000);
+    output({ format: opts.format, jq: opts.jq }, { ...res, socketGone: true });
+  });
+
+program
+  .command("daemon-request")
+  .description("Send an arbitrary LSP request via daemon (advanced/debug).")
+  .requiredOption("--method <name>", "LSP method")
+  .option("--params <json>", "JSON params (string)")
+  .action(async (cmdOpts) => {
+    const opts = program.opts() as GlobalOpts;
+    const method = String(cmdOpts.method);
+    const params = cmdOpts.params ? JSON.parse(String(cmdOpts.params)) : undefined;
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("lsp"), cmd: "lsp/request", method, params });
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("apply-edits")
+  .description("Apply a WorkspaceEdit JSON from stdin (default: dry-run)")
+  .option("--apply", "apply edit to files")
+  .action(async (cmdOpts?: { apply?: boolean }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    if (opts.stdin) throw new Error("apply-edits reads WorkspaceEdit JSON from stdin; do not use --stdin");
+    const raw = await readAllStdin();
+    const edit = JSON.parse(raw || "null");
+
+    if (cmdOpts?.apply) {
+      await applyWorkspaceEdit(edit);
+      output({ format: opts.format, jq: opts.jq }, { applied: true });
+      return;
+    }
+
+    output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
   });
 
 program
@@ -368,8 +597,6 @@ program
   .argument("[file]", "file path, or '-' to read from stdin")
   .action(async (fileArg?: string) => {
     const opts = program.opts() as GlobalOpts;
-    const root = path.resolve(opts.root ?? process.cwd());
-    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
 
     let file = fileArg;
     if (opts.stdin) {
@@ -380,17 +607,69 @@ program
     }
     if (!file) throw new Error("file is required (or use --stdin)");
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const root = path.resolve(opts.root ?? process.cwd());
+        const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/documentSymbol", {
+            textDocument: { uri }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("symbols"),
+          cmd: "lsp/request",
+          method: "textDocument/documentSymbol",
+          params: { textDocument: { uri } }
+        });
+      }
+    );
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatDocumentSymbolsPretty(res, abs) : res
+    );
+  });
+
+program
+  .command("symbols-daemon")
+  .description("textDocument/documentSymbol via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .action(async (fileArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string };
+      file = params.file;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+    if (!file) throw new Error("file is required (or use --stdin)");
 
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
-    const res = await client.request("textDocument/documentSymbol", {
-      textDocument: { uri }
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("symbols"),
+        cmd: "lsp/request",
+        method: "textDocument/documentSymbol",
+        params: { textDocument: { uri } }
+      });
     });
 
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatDocumentSymbolsPretty(res, abs) : res
@@ -424,21 +703,89 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/references", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+            context: { includeDeclaration: true }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("refs"),
+          cmd: "lsp/request",
+          method: "textDocument/references",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+            context: { includeDeclaration: true }
+          }
+        });
+      }
+    );
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
+    );
+  });
+
+program
+  .command("references-daemon")
+  .description("textDocument/references via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (line == null) throw new Error("line is required");
+    if (col == null) throw new Error("col is required");
 
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const res = await client.request("textDocument/references", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) },
-      context: { includeDeclaration: true }
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("refs"),
+        cmd: "lsp/request",
+        method: "textDocument/references",
+        params: {
+          textDocument: { uri },
+          position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+          context: { includeDeclaration: true }
+        }
+      });
     });
 
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
@@ -472,23 +819,87 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/definition", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("def"),
+          cmd: "lsp/request",
+          method: "textDocument/definition",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
+    );
+  });
+
+program
+  .command("definition-daemon")
+  .description("textDocument/definition via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (line == null) throw new Error("line is required");
+    if (col == null) throw new Error("col is required");
 
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = await client.request("textDocument/definition", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("def"),
+        cmd: "lsp/request",
+        method: "textDocument/definition",
+        params: {
+          textDocument: { uri },
+          position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+        }
+      });
     });
 
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatLocationsPretty(res) : res
@@ -623,22 +1034,88 @@ program
       throw new Error("file/line/col are required (or use --stdin)");
     }
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/hover", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("hover"),
+          cmd: "lsp/request",
+          method: "textDocument/hover",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatHoverPretty(res) : res
+    );
+  });
+
+program
+  .command("hover-daemon")
+  .description("textDocument/hover via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (line == null) throw new Error("line is required");
+    if (col == null) throw new Error("col is required");
 
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = await client.request("textDocument/hover", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("hover"),
+        cmd: "lsp/request",
+        method: "textDocument/hover",
+        params: {
+          textDocument: { uri },
+          position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+        }
+      });
     });
 
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatHoverPretty(res) : res
@@ -672,23 +1149,87 @@ program
     if (!file || line == null || col == null) {
       throw new Error("file/line/col are required (or use --stdin)");
     }
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
+
+          return await client.request("textDocument/signatureHelp", {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          });
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("sig"),
+          cmd: "lsp/request",
+          method: "textDocument/signatureHelp",
+          params: {
+            textDocument: { uri },
+            position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+          }
+        });
+      }
+    );
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
+    );
+  });
+
+program
+  .command("signature-help-daemon")
+  .description("textDocument/signatureHelp via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (line == null) throw new Error("line is required");
+    if (col == null) throw new Error("col is required");
 
     const abs = path.resolve(file);
     const uri = pathToFileUri(abs);
-    await client.openTextDocument(abs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
-
-    const res = await client.request("textDocument/signatureHelp", {
-      textDocument: { uri },
-      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("sig"),
+        cmd: "lsp/request",
+        method: "textDocument/signatureHelp",
+        params: {
+          textDocument: { uri },
+          position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+        }
+      });
     });
 
-    await client.shutdown();
     output(
       { format: opts.format, jq: opts.jq },
       opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
@@ -714,14 +1255,64 @@ program
     }
     if (query == null) query = "";
 
-    const client = new LspClient({ rootPath: root, server: profile });
-    await client.start();
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
+          if (waitMs > 0) await sleep(waitMs);
 
-    const waitMs = parseIntStrict(String(opts.waitMs ?? "0"));
-    if (waitMs > 0) await sleep(waitMs);
+          return (await client.request("workspace/symbol", { query })) as any[];
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("wssym"),
+          cmd: "lsp/request",
+          method: "workspace/symbol",
+          params: { query }
+        });
+      }
+    );
 
-    const res = (await client.request("workspace/symbol", { query })) as any[];
-    await client.shutdown();
+    const limit = parseIntStrict(String(cmdOpts?.limit ?? "50"));
+    const sliced = Array.isArray(res) ? res.slice(0, Math.max(0, limit)) : res;
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatWorkspaceSymbolsPretty(sliced) : sliced
+    );
+  });
+
+program
+  .command("ws-symbols-daemon")
+  .description("workspace/symbol via daemon (experimental)")
+  .argument("[query]", "search query (or '-' to read from stdin)")
+  .option("--limit <n>", "limit results", "50")
+  .action(async (queryArg?: string, cmdOpts?: { limit?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let query = queryArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { query: string };
+      query = params.query;
+    } else if (query === "-") {
+      query = (await readAllStdin()).trim();
+    }
+    if (query == null) query = "";
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("wssym"),
+        cmd: "lsp/request",
+        method: "workspace/symbol",
+        params: { query }
+      });
+    });
 
     const limit = parseIntStrict(String(cmdOpts?.limit ?? "50"));
     const sliced = Array.isArray(res) ? res.slice(0, Math.max(0, limit)) : res;
@@ -891,32 +1482,63 @@ program
       if (!file || line == null || col == null || !newName) {
         throw new Error("file/line/col/newName are required (or use --stdin)");
       }
-
-      const client = new LspClient({ rootPath: root, server: profile });
-      await client.start();
-
       const abs = path.resolve(file);
       const uri = pathToFileUri(abs);
-      await client.openTextDocument(abs);
 
-      const edit = await client.request("textDocument/rename", {
-        textDocument: { uri },
-        position: { line: parseIntStrict(line), character: parseIntStrict(col) },
-        newName
-      });
+      const wantsApply = !!cmdOpts.apply;
 
-      if (cmdOpts.apply) {
-        await applyWorkspaceEdit(edit);
-        await client.shutdown();
+      const edit = await withDaemonFallback(
+        opts,
+        async () => {
+          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+          await client.start();
+          try {
+            await client.openTextDocument(abs);
+
+            return await client.request("textDocument/rename", {
+              textDocument: { uri },
+              position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+              newName
+            });
+          } finally {
+            await client.shutdown();
+          }
+        },
+        async (client) => {
+          if (wantsApply) {
+            const res = await client.request({
+              id: newRequestId("rename"),
+              cmd: "lsp/requestAndApply",
+              method: "textDocument/rename",
+              params: {
+                textDocument: { uri },
+                position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+                newName
+              }
+            });
+            return (res as any)?.result;
+          }
+
+          return await client.request({
+            id: newRequestId("rename"),
+            cmd: "lsp/request",
+            method: "textDocument/rename",
+            params: {
+              textDocument: { uri },
+              position: { line: parseIntStrict(line), character: parseIntStrict(col) },
+              newName
+            }
+          });
+        }
+      );
+
+      if (wantsApply) {
+        if (edit) await applyWorkspaceEdit(edit);
         output({ format: opts.format, jq: opts.jq }, { applied: true });
         return;
       }
 
-      await client.shutdown();
-      output(
-        { format: opts.format, jq: opts.jq },
-        opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit
-      );
+      output({ format: opts.format, jq: opts.jq }, opts.format === "pretty" && !opts.jq ? formatWorkspaceEditPretty(edit) : edit);
     }
   );
 
@@ -982,22 +1604,47 @@ program
       if (!file || startLine == null || startCol == null || endLine == null || endCol == null) {
         throw new Error("file/startLine/startCol/endLine/endCol are required (or use --stdin)");
       }
-
-      const client = new LspClient({ rootPath: root, server: profile, applyEdits: !!cmdOpts?.apply });
-      await client.start();
-
       const abs = path.resolve(file);
       const uri = pathToFileUri(abs);
-      await client.openTextDocument(abs);
 
-      const actions = (await client.request("textDocument/codeAction", {
-        textDocument: { uri },
-        range: {
-          start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
-          end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+      const wantsApply = !!cmdOpts?.apply;
+
+      const actions = (await withDaemonFallback(
+        opts,
+        async () => {
+          const client = new LspClient({ rootPath: root, server: profile, applyEdits: wantsApply });
+          await client.start();
+          try {
+            await client.openTextDocument(abs);
+
+            return (await client.request("textDocument/codeAction", {
+              textDocument: { uri },
+              range: {
+                start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
+                end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+              },
+              context: { diagnostics: [] }
+            })) as any[];
+          } finally {
+            await client.shutdown();
+          }
         },
-        context: { diagnostics: [] }
-      })) as any[];
+        async (client) => {
+          return await client.request({
+            id: newRequestId("cact"),
+            cmd: "lsp/request",
+            method: "textDocument/codeAction",
+            params: {
+              textDocument: { uri },
+              range: {
+                start: { line: parseIntStrict(startLine), character: parseIntStrict(startCol) },
+                end: { line: parseIntStrict(endLine), character: parseIntStrict(endCol) }
+              },
+              context: { diagnostics: [] }
+            }
+          });
+        }
+      )) as any[];
 
       const summarized = (actions ?? []).map((a, index) => ({
         index,
@@ -1041,7 +1688,6 @@ program
       })();
 
       if (pickedIdx == null) {
-        await client.shutdown();
         output(
           { format: opts.format, jq: opts.jq },
           opts.format === "pretty" && !opts.jq ? formatCodeActionsPretty(summarized) : summarized
@@ -1051,12 +1697,10 @@ program
 
       const selected = actions?.[pickedIdx];
       if (!selected) {
-        await client.shutdown();
         throw new Error(`no code action at index ${pickedIdx}`);
       }
 
       if (!cmdOpts?.apply) {
-        await client.shutdown();
         output(
           { format: opts.format, jq: opts.jq },
           opts.format === "pretty" && !opts.jq
@@ -1068,7 +1712,6 @@ program
 
       if (selected.edit) {
         await applyWorkspaceEdit(selected.edit);
-        await client.shutdown();
         output({ format: opts.format, jq: opts.jq }, { applied: true, via: "edit", index: pickedIdx, title: selected.title, kind: selected.kind });
         return;
       }
@@ -1076,16 +1719,34 @@ program
       // LSP allows returning Command objects (or CodeAction.command).
       const cmd = selected.command;
       if (cmd && typeof cmd.command === "string") {
-        const res = await client.request("workspace/executeCommand", {
-          command: cmd.command,
-          arguments: cmd.arguments
-        });
-        await client.shutdown();
+        const res = await withDaemonFallback(
+          opts,
+          async () => {
+            const client = new LspClient({ rootPath: root, server: profile, applyEdits: true });
+            await client.start();
+            try {
+              await client.openTextDocument(abs);
+              return await client.request("workspace/executeCommand", {
+                command: cmd.command,
+                arguments: cmd.arguments
+              });
+            } finally {
+              await client.shutdown();
+            }
+          },
+          async (client) => {
+            const r = await client.request({
+              id: newRequestId("exec"),
+              cmd: "lsp/requestAndApply",
+              method: "workspace/executeCommand",
+              params: { command: cmd.command, arguments: cmd.arguments }
+            });
+            return (r as any)?.result;
+          }
+        );
         output({ format: opts.format, jq: opts.jq }, { applied: true, via: "command", index: pickedIdx, title: selected.title, kind: selected.kind, result: res });
         return;
       }
-
-      await client.shutdown();
       throw new Error("selected code action has neither edit nor executable command");
     }
   );
