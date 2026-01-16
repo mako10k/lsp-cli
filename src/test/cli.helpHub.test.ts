@@ -23,6 +23,9 @@ test("cli help examples shows use-case samples", async () => {
   assert.equal(res.code, 0);
   assert.match(res.stdout, /use-case samples/);
   assert.match(res.stdout, /Navigate/);
+  assert.match(res.stdout, /Config file \(server profiles\)/);
+  assert.match(res.stdout, /\.lsp-cli\.json/);
+  assert.match(res.stdout, /--config <path>/);
 });
 
 test("cli help <command> delegates to command help", async () => {

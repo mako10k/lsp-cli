@@ -470,6 +470,7 @@ function printHelpToc(): void {
       "See also:",
       "  - README.md (long-form guide)",
       "  - PROTOCOL_SUPPORT.md (feature matrix)",
+      "  - Config file guide: see 'lsp-cli help examples' (section: server profiles)",
       ""
     ].join("\n")
   );
@@ -533,6 +534,23 @@ function printHelpExamples(): void {
       "  cat <<'JSONL' | lsp-cli --root <root> --format json batch",
       "  {\"cmd\":\"definition\",\"file\":\"src/main.rs\",\"line\":0,\"col\":0}",
       "  JSONL",
+      "",
+      "5) Config file (server profiles)",
+      "  By default, lsp-cli searches:",
+      "    <root>/.lsp-cli.json",
+      "    <root>/lsp-cli.config.json",
+      "  You can override with --config <path> (relative paths are resolved from <root>).",
+      "",
+      "  Example: <root>/.lsp-cli.json",
+      "    {",
+      "      \"servers\": {",
+      "        \"rust-analyzer\": { \"command\": \"rust-analyzer\", \"args\": [] },",
+      "        \"typescript-language-server\": { \"command\": \"npx\", \"args\": [\"-y\", \"typescript-language-server\", \"--stdio\"] }",
+      "      }",
+      "    }",
+      "",
+      "  Usage:",
+      "    lsp-cli --root <root> --config .lsp-cli.json --server rust-analyzer ping",
       ""
     ].join("\n")
   );
