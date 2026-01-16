@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { LspClient } from "../lsp/LspClient";
 
-test("LspClient works with mock server (initialize/open/didChange + basic requests)", async () => {
+test("LspClient works with mock server (initialize/open/didChange + basic requests)", { timeout: 10_000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-mock-"));
   const file = path.join(root, "a.txt");
   await fs.writeFile(file, "a😀b\n", "utf8");
@@ -68,7 +68,7 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   await client.shutdown();
 });
 
-test("LspClient handles workspace/applyEdit initiated by server", async () => {
+test("LspClient handles workspace/applyEdit initiated by server", { timeout: 10_000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-mock-"));
   const file = path.join(root, "b.txt");
   await fs.writeFile(file, "hello\n", "utf8");

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-test("cli batch runs multiple requests in one LSP session", async () => {
+test("cli batch runs multiple requests in one LSP session", { timeout: 10_000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-batch-"));
   const file = path.join(root, "a.txt");
   await fs.writeFile(file, "hello\n", "utf8");

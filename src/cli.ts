@@ -9,6 +9,11 @@ import { LspClient } from "./lsp/LspClient";
 import { getServerProfile } from "./servers";
 import { applyWorkspaceEdit, formatWorkspaceEditPretty } from "./lsp/workspaceEdit";
 import { pathToFileUri } from "./util/paths";
+import { runDaemonMain } from "./daemon/daemonMain";
+import { DaemonClient } from "./daemon/DaemonClient";
+import { newRequestId } from "./daemon/protocol";
+import { resolveDaemonEndpoint } from "./util/endpoint";
+import { spawnDaemonDetached } from "./daemon/autostart";
 
 type OutputFormat = "json" | "pretty";
 
@@ -21,7 +26,58 @@ type GlobalOpts = {
   stdin?: boolean;
   jq?: string;
   waitMs?: string;
+  daemonLog?: string;
 };
+
+async function connectDaemonWithAutostart(opts: GlobalOpts, socketPath: string): Promise<DaemonClient> {
+  const CONNECT_TIMEOUT_MS = 1500;
+  const AUTOSTART_TOTAL_TIMEOUT_MS = 5000;
+
+  const deadline = Date.now() + AUTOSTART_TOTAL_TIMEOUT_MS;
+
+  try {
+    return await DaemonClient.connect(socketPath, CONNECT_TIMEOUT_MS);
+  } catch {
+    // Auto-start policy: only start implicitly. No explicit `daemon start` command.
+    const cliPath = path.resolve(process.argv[1] ?? "dist/cli.js");
+    const root = path.resolve(opts.root ?? process.cwd());
+    await spawnDaemonDetached({ cliPath, root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
+
+    // Retry a few times while the daemon binds the socket.
+    let lastErr: unknown;
+    while (Date.now() < deadline) {
+      await sleep(100);
+      try {
+        return await DaemonClient.connect(socketPath, CONNECT_TIMEOUT_MS);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr ?? new Error(`timeout waiting for daemon to start: ${socketPath}`);
+  }
+}
+
+async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
+  const root = path.resolve(opts.root ?? process.cwd());
+  const serverName = opts.server;
+  const { socketPath, defaultLogPath } = resolveDaemonEndpoint(root, serverName);
+
+  const client = await connectDaemonWithAutostart(opts, socketPath);
+  try {
+    if (typeof opts.daemonLog === "string") {
+      const v = opts.daemonLog.trim();
+      if (!v || v === "discard") {
+        await client.request({ id: newRequestId("log"), cmd: "daemon/log/set", mode: "discard" });
+      } else {
+        const p = v === "default" ? defaultLogPath : v;
+        await client.request({ id: newRequestId("log"), cmd: "daemon/log/set", mode: "file", path: p });
+      }
+    }
+    return await fn(client, socketPath, defaultLogPath);
+  } finally {
+    client.close();
+  }
+}
 
 async function readAllStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -329,6 +385,7 @@ program
   .option("--stdin", "read command input params from stdin as JSON")
   .option("--jq <filter>", "pipe JSON output through jq filter (requires jq in PATH)")
   .option("--wait-ms <n>", "wait before some requests (ms; helps rust-analyzer warm-up)", "500")
+  .option("--daemon-log <path>", "daemon log path (auto-start); default discards logs")
   .addHelpText(
     "after",
     [
@@ -360,6 +417,31 @@ program
     await client.shutdown();
 
     output({ format: opts.format, jq: opts.jq }, { ok: true });
+  });
+
+program
+  .command("daemon")
+  .description("Run the lsp-cli daemon (Unix socket server)")
+  .action(async () => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    await runDaemonMain({ rootPath: root, server: opts.server, config: opts.config, serverCmd: opts.serverCmd });
+  });
+
+program
+  .command("daemon-log")
+  .description("Get/set daemon log sink (requires running daemon). value: discard|default|<path>")
+  .argument("[value]", "discard | default | <path>")
+  .action(async (value: string | undefined) => {
+    const opts = program.opts() as GlobalOpts;
+    const effective: GlobalOpts = value == null ? opts : { ...opts, daemonLog: value };
+
+    const res = await withDaemonClient(effective, async (client, socketPath, defaultLogPath) => {
+      const status = await client.request({ id: newRequestId("log-get"), cmd: "daemon/log/get" });
+      return { socketPath, defaultLogPath, log: status };
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
   });
 
 program

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-test("cli code-actions can auto-select by kind/title and apply", async () => {
+test("cli code-actions can auto-select by kind/title and apply", { timeout: 10_000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-cli-"));
   const file = path.join(root, "a.txt");
   await fs.writeFile(file, "hello\n", "utf8");
