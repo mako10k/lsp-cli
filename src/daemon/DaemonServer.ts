@@ -9,6 +9,8 @@ import { parseJsonlLine, toJsonl } from "./protocol";
 import { ensureEndpointDir, resolveDaemonEndpoint } from "../util/endpoint";
 import { DaemonLog } from "./logging";
 import { EventQueue } from "./events";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 export type DaemonServerOptions = {
   rootPath: string;
@@ -176,6 +178,7 @@ export class DaemonServer {
 
       case "lsp/request": {
         if (!req.method) throw new Error("lsp/request requires method");
+        await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
         return await this.client.request(String(req.method), req.params);
       }
 
@@ -198,5 +201,37 @@ export class DaemonServer {
       default:
         throw new Error(`unsupported cmd: ${(req as any).cmd}`);
     }
+  }
+
+  private async maybeSyncTextDocumentForRequest(method: string, params: any): Promise<void> {
+    if (!this.client) return;
+
+    // Best-effort: for textDocument/* requests that refer to a file URI, keep the daemon's
+    // server-side view in sync with the filesystem. This makes daemon-backed CLI calls
+    // behave like the non-daemon path which opens the document before requesting.
+    const uri =
+      typeof params?.textDocument?.uri === "string"
+        ? String(params.textDocument.uri)
+        : typeof params?.textDocument === "string"
+          ? String(params.textDocument)
+          : null;
+    if (!uri) return;
+
+    // Only handle file:// URIs.
+    if (!uri.startsWith("file://")) return;
+
+    // Try to map to a local path and sync content.
+    let filePath: string;
+    try {
+      filePath = fileURLToPath(uri);
+    } catch {
+      return;
+    }
+
+    // Ensure absolute path.
+    if (!path.isAbsolute(filePath)) return;
+
+    // Sync by reading file and issuing didOpen/didChange if needed.
+    await this.client.changeTextDocument(filePath);
   }
 }
