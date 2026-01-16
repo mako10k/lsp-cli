@@ -603,6 +603,50 @@ program
   });
 
 program
+  .command("did-change-configuration")
+  .description("workspace/didChangeConfiguration")
+  .option("--settings <json>", "JSON settings object (string)")
+  .action(async (cmdOpts?: { settings?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let settings: unknown;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { settings: unknown };
+      settings = params.settings;
+    } else if (typeof cmdOpts?.settings === "string") {
+      settings = JSON.parse(cmdOpts.settings);
+    } else {
+      throw new Error("settings are required (use --stdin or --settings '<json>')");
+    }
+
+    await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          client.notify("workspace/didChangeConfiguration", { settings });
+          return { notified: true };
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("cfg"),
+          cmd: "lsp/notify",
+          method: "workspace/didChangeConfiguration",
+          params: { settings }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, { notified: true });
+  });
+
+program
   .command("format")
   .description("textDocument/formatting (default: dry-run)")
   .argument("[file]", "file path, or '-' to read from stdin")

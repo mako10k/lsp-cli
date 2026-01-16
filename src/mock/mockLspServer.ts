@@ -9,6 +9,7 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number | string; result?: any; erro
 
 let lastDidOpen: any = null;
 let lastDidChange: any = null;
+let lastDidChangeConfiguration: any = null;
 let initializeCount = 0;
 
 let serverReqSeq = 0;
@@ -188,6 +189,9 @@ async function onRequest(req: JsonRpcRequest) {
     case "mock/getLastDidChange":
       return respond(req.id, lastDidChange);
 
+    case "mock/getLastDidChangeConfiguration":
+      return respond(req.id, lastDidChangeConfiguration);
+
     case "mock/getInitializeCount":
       return respond(req.id, initializeCount);
 
@@ -326,6 +330,9 @@ function onNotification(n: JsonRpcNotification) {
       return;
     case "textDocument/didChange":
       lastDidChange = n.params;
+      return;
+    case "workspace/didChangeConfiguration":
+      lastDidChangeConfiguration = n.params;
       return;
     default:
       return;

@@ -197,6 +197,14 @@ export class DaemonServer {
         return await this.client.request(String(req.method), req.params);
       }
 
+      case "lsp/notify": {
+        if (!this.client) throw new Error("LSP server is not running");
+        if (!req.method) throw new Error("lsp/notify requires method");
+        await this.maybeSyncTextDocumentForRequest(String(req.method), req.params);
+        this.client.notify(String(req.method), req.params);
+        return { notified: true };
+      }
+
       case "lsp/requestAndApply": {
         if (!this.client) throw new Error("LSP server is not running");
         if (!req.method) throw new Error("lsp/requestAndApply requires method");
