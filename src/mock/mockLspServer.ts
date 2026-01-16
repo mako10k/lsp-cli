@@ -178,6 +178,22 @@ async function onRequest(req: JsonRpcRequest) {
         }
       });
 
+    case "textDocument/signatureHelp":
+      return respond(req.id, {
+        signatures: [
+          {
+            label: "mockSignature(a: number)",
+            documentation: {
+              kind: "plaintext",
+              value: "mock signature help"
+            },
+            parameters: [{ label: "a" }]
+          }
+        ],
+        activeSignature: 0,
+        activeParameter: 0
+      });
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }

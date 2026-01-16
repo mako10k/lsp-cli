@@ -950,6 +950,53 @@ program
   });
 
 program
+  .command("signature-help-daemon")
+  .description("textDocument/signatureHelp via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (line == null) throw new Error("line is required");
+    if (col == null) throw new Error("col is required");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("sig"),
+        cmd: "lsp/request",
+        method: "textDocument/signatureHelp",
+        params: {
+          textDocument: { uri },
+          position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+        }
+      });
+    });
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatSignatureHelpPretty(res) : res
+    );
+  });
+
+program
   .command("ws-symbols")
   .description("workspace/symbol")
   .argument("[query]", "search query (or '-' to read from stdin)")
