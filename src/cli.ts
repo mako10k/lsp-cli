@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -106,6 +107,20 @@ async function readAllStdin(): Promise<string> {
     process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     process.stdin.on("error", reject);
   });
+}
+
+async function waitForDaemonSocketGone(socketPath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fs.promises.stat(socketPath);
+    } catch {
+      // stat failed -> likely gone
+      return;
+    }
+    await sleep(50);
+  }
+  throw new Error(`timeout waiting for daemon socket to disappear: ${socketPath}`);
 }
 
 function parseIntStrict(v: string): number {
@@ -526,10 +541,17 @@ program
   .description("Stop daemon process (will remove UDS socket)")
   .action(async () => {
     const opts = program.opts() as GlobalOpts;
+
+    const root = path.resolve(opts.root ?? process.cwd());
+    const { socketPath } = resolveDaemonEndpoint(root, opts.server);
+
     const res = await withDaemonClient(opts, async (client) => {
       return await client.request({ id: newRequestId("stop"), cmd: "daemon/stop" });
     });
-    output({ format: opts.format, jq: opts.jq }, res);
+
+    // Best-effort guarantee: after daemon-stop returns, wait for the socket to be removed.
+    await waitForDaemonSocketGone(socketPath, 2000);
+    output({ format: opts.format, jq: opts.jq }, { ...res, socketGone: true });
   });
 
 program

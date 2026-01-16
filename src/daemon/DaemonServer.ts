@@ -211,8 +211,11 @@ export class DaemonServer {
       }
 
       case "daemon/stop":
-        // Return before actual stop? keep simple: stop then return.
-        await this.stop();
+        // Important: do not close the server/socket before replying to this request,
+        // otherwise the client may never receive the response.
+        setImmediate(() => {
+          void this.stop();
+        });
         return { stopped: true };
 
       case "server/status":
