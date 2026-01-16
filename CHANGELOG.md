@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 (2026-01-16)
+
+### Added
+- `--save-after-apply` + `--wait-diagnostics-ms` (opt-in) for `rename`, `format`, `code-actions` to trigger `textDocument/didSave` and optionally include `publishDiagnostics` in output.
+
+### Changed
+- `format` flags are normalized to `--save-after-apply` / `--wait-diagnostics-ms`.
+
+### Fixed
+- Daemon apply behavior for requests that return `WorkspaceEdit` directly (e.g. `rename`, `formatting`).
+
 ## 0.1.1 (2026-01-16)
 
 ### Added
