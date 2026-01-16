@@ -55,6 +55,12 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 sig
 
 # workspace symbols
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 ws-symbols add --limit 20
+
+# implementation
+npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 implementation samples/rust-basic/src/main.rs 8 12
+
+# type definition
+npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 type-definition samples/rust-basic/src/main.rs 8 12
 ```
 
 ## Notes

@@ -40,8 +40,8 @@ Legend:
 | References | `textDocument/references` | `references-daemon` | ✅ | Daemon-only |
 | Definition | `textDocument/definition` | `definition` | ✅ | Daemon-first + fallback |
 | Definition | `textDocument/definition` | `definition-daemon` | ✅ | Daemon-only |
-| Type definition | `textDocument/typeDefinition` | `type-definition` | ✅ | Direct (stdio) only (no daemon command provided) |
-| Implementation | `textDocument/implementation` | `implementation` | ✅ | Direct (stdio) only (no daemon command provided) |
+| Type definition | `textDocument/typeDefinition` | `type-definition` | ✅ | Daemon-first + fallback |
+| Implementation | `textDocument/implementation` | `implementation` | ✅ | Daemon-first + fallback |
 | Hover | `textDocument/hover` | `hover` | ✅ | Daemon-first + fallback |
 | Hover | `textDocument/hover` | `hover-daemon` | ✅ | Daemon-only |
 | Signature help | `textDocument/signatureHelp` | `signature-help` | ✅ | Daemon-first + fallback |
@@ -56,6 +56,16 @@ Legend:
 | Batch | Run multiple requests sequentially | `batch` | ✅ | Runs multiple operations like `symbols/hover/...` (implementation-dependent) |
 | Debug/advanced | Send arbitrary LSP request | `daemon-request` | ✅ | Invoke an arbitrary method via the daemon |
 | Editing helper | Delete symbol (custom) | `delete-symbol` | 🟡 | Derives a range from `documentSymbol` and deletes it as a `WorkspaceEdit` |
+| Formatting | `textDocument/formatting` | `format` | ✅ | Returns edits; apply with `--apply` |
+| Formatting | `textDocument/rangeFormatting` | `format-range` | ✅ | Returns edits; apply with `--apply` |
+| Completion | `textDocument/completion` | `completion` | ✅ | Returns `CompletionList`/items |
+| Highlight | `textDocument/documentHighlight` | `document-highlight` | ✅ | Returns `DocumentHighlight[]` |
+| Inlay hints | `textDocument/inlayHint` | `inlay-hints` | ✅ | Returns `InlayHint[]` |
+| Semantic tokens | `textDocument/semanticTokens/full` | `semantic-tokens-full` | ✅ | Raw tokens (server-dependent legend) |
+| Semantic tokens | `textDocument/semanticTokens/range` | `semantic-tokens-range` | ✅ | Raw tokens |
+| Semantic tokens | `textDocument/semanticTokens/full/delta` | `semantic-tokens-delta` | ✅ | Raw delta tokens |
+| Workspace | `workspace/didChangeConfiguration` | `did-change-configuration` | ✅ | Sends notification (daemon-first where supported) |
+| Rename | `textDocument/prepareRename` | `prepare-rename` | ✅ | Returns range/placeholder |
 
 ---
 
@@ -63,11 +73,11 @@ Legend:
 
 Even if the server supports these, the CLI currently has no dedicated command for them (you may still be able to invoke them via `daemon-request`, etc.).
 
-- `textDocument/formatting` / `textDocument/rangeFormatting`
-- `textDocument/semanticTokens/*`
-- `textDocument/completion` / `textDocument/documentHighlight`
-- `textDocument/inlayHint`
-- `workspace/didChangeConfiguration`
+- `textDocument/codeLens`
+- `textDocument/linkedEditingRange`
+- `textDocument/selectionRange`
+- `textDocument/foldingRange`
+- `workspace/willRenameFiles` / `workspace/didRenameFiles`
 
 ---
 
