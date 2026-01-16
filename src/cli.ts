@@ -524,6 +524,40 @@ program
   });
 
 program
+  .command("symbols-daemon")
+  .description("textDocument/documentSymbol via daemon (experimental)")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .action(async (fileArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+
+    let file = fileArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string };
+      file = params.file;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("symbols"),
+        cmd: "lsp/request",
+        method: "textDocument/documentSymbol",
+        params: { textDocument: { uri } }
+      });
+    });
+
+    output(
+      { format: opts.format, jq: opts.jq },
+      opts.format === "pretty" && !opts.jq ? formatDocumentSymbolsPretty(res, abs) : res
+    );
+  });
+
+program
   .command("references")
   .description("textDocument/references")
   .argument("[file]", "file path, or '-' to read from stdin")
