@@ -261,6 +261,12 @@ async function onRequest(req: JsonRpcRequest) {
         data: [0, 0, 5, 0, 0]
       });
 
+    case "textDocument/semanticTokens/range":
+      return respond(req.id, {
+        resultId: "mock-range",
+        data: [0, 0, 3, 1, 0]
+      });
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [
