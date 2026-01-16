@@ -3,6 +3,8 @@ export type DaemonRequest =
   | { id: string; cmd: "daemon/status" }
   | { id: string; cmd: "daemon/log/get" }
   | { id: string; cmd: "daemon/log/set"; mode: "discard" | "file"; path?: string }
+  | { id: string; cmd: "events/get"; kind?: "diagnostics"; since?: number; limit?: number }
+  | { id: string; cmd: "lsp/request"; method: string; params?: any }
   | { id: string; cmd: "daemon/stop" }
   | { id: string; cmd: "server/status" }
   | { id: string; cmd: "server/restart" };

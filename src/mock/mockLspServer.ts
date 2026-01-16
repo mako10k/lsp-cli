@@ -163,6 +163,13 @@ async function onRequest(req: JsonRpcRequest) {
     case "mock/getInitializeCount":
       return respond(req.id, initializeCount);
 
+    case "mock/sendDiagnostics": {
+      const uri = req.params?.uri;
+      const diagnostics = Array.isArray(req.params?.diagnostics) ? req.params.diagnostics : [];
+      writeMessage({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
+      return respond(req.id, { sent: true });
+    }
+
     default:
       return respondError(req.id, `mock server: unsupported method: ${req.method}`);
   }

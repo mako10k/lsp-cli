@@ -8,6 +8,7 @@ import type { DaemonRequest, DaemonResponse } from "./protocol";
 import { parseJsonlLine, toJsonl } from "./protocol";
 import { ensureEndpointDir, resolveDaemonEndpoint } from "../util/endpoint";
 import { DaemonLog } from "./logging";
+import { EventQueue } from "./events";
 
 export type DaemonServerOptions = {
   rootPath: string;
@@ -27,6 +28,7 @@ export class DaemonServer {
 
   private client: LspClient | null = null;
   private readonly log = new DaemonLog();
+  private readonly events = new EventQueue();
 
   constructor(opts: DaemonServerOptions) {
     this.rootPath = opts.rootPath;
@@ -59,6 +61,10 @@ export class DaemonServer {
     const profile = getServerProfile(this.serverName, this.rootPath, this.configPath, this.serverCmd);
     this.client = new LspClient({ rootPath: this.rootPath, server: profile });
     await this.client.start();
+
+    this.client.onNotification("textDocument/publishDiagnostics", (params) => {
+      this.events.push("diagnostics", params);
+    });
 
     // Default: discard logs. The client can switch via daemon/log/set.
     // (Future) We may log server stderr here if needed.
@@ -162,6 +168,15 @@ export class DaemonServer {
           return this.log.getStatus();
         }
         throw new Error(`unsupported log mode: ${(req as any).mode}`);
+      }
+
+      case "events/get": {
+        return this.events.get({ kind: req.kind, since: req.since, limit: req.limit });
+      }
+
+      case "lsp/request": {
+        if (!req.method) throw new Error("lsp/request requires method");
+        return await this.client.request(String(req.method), req.params);
       }
 
       case "daemon/stop":

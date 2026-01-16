@@ -32,6 +32,8 @@ export class LspClient {
   private textDocumentSyncKind: number | null = null;
   private readonly openedDocs = new Map<string, TextDocumentItem>();
 
+  private readonly notificationHandlers = new Map<string, Array<(params: any) => void>>();
+
   constructor(opts: { rootPath: string; server: ServerProfile; applyEdits?: boolean }) {
     this.rootPath = opts.rootPath;
     this.server = opts.server;
@@ -55,6 +57,20 @@ export class LspClient {
     const reader = new StreamMessageReader(this.proc.stdout);
     const writer = new StreamMessageWriter(this.proc.stdin);
     this.conn = createMessageConnection(reader, writer);
+
+    // Allow consumers (daemon) to subscribe to server notifications.
+    // Handlers are best-effort and must not throw.
+    this.conn.onNotification((method: string, params: any) => {
+      const handlers = this.notificationHandlers.get(method);
+      if (!handlers) return;
+      for (const h of handlers) {
+        try {
+          h(params);
+        } catch {
+          // ignore
+        }
+      }
+    });
 
     this.conn.onRequest("workspace/applyEdit", async (params: any) => {
       if (!this.applyEdits) {
@@ -250,6 +266,19 @@ export class LspClient {
       return;
     }
     this.conn.sendNotification(method as any, params as any);
+  }
+
+  onNotification(method: string, handler: (params: any) => void): () => void {
+    const arr = this.notificationHandlers.get(method) ?? [];
+    arr.push(handler);
+    this.notificationHandlers.set(method, arr);
+    return () => {
+      const cur = this.notificationHandlers.get(method);
+      if (!cur) return;
+      const next = cur.filter((x) => x !== handler);
+      if (next.length) this.notificationHandlers.set(method, next);
+      else this.notificationHandlers.delete(method);
+    };
   }
 }
 

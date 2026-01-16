@@ -445,6 +445,50 @@ program
   });
 
 program
+  .command("events")
+  .description("Pull events from daemon (e.g. diagnostics).")
+  .option("--kind <kind>", "event kind (diagnostics)", "diagnostics")
+  .option("--since <cursor>", "only return events after cursor", "0")
+  .option("--limit <n>", "max events to return (1-1000)", "200")
+  .action(async (cmdOpts) => {
+    const opts = program.opts() as GlobalOpts;
+    const kind = String(cmdOpts.kind ?? "diagnostics");
+    if (kind !== "diagnostics") throw new Error(`unsupported kind: ${kind}`);
+
+    const since = parseIntStrict(String(cmdOpts.since ?? "0"));
+    const limit = parseIntStrict(String(cmdOpts.limit ?? "200"));
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({
+        id: newRequestId("events"),
+        cmd: "events/get",
+        kind: "diagnostics",
+        since,
+        limit
+      });
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("daemon-request")
+  .description("Send an arbitrary LSP request via daemon (advanced/debug).")
+  .requiredOption("--method <name>", "LSP method")
+  .option("--params <json>", "JSON params (string)")
+  .action(async (cmdOpts) => {
+    const opts = program.opts() as GlobalOpts;
+    const method = String(cmdOpts.method);
+    const params = cmdOpts.params ? JSON.parse(String(cmdOpts.params)) : undefined;
+
+    const res = await withDaemonClient(opts, async (client) => {
+      return await client.request({ id: newRequestId("lsp"), cmd: "lsp/request", method, params });
+    });
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
   .command("symbols")
   .description("textDocument/documentSymbol")
   .argument("[file]", "file path, or '-' to read from stdin")
