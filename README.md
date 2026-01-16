@@ -23,6 +23,7 @@ A lightweight CLI client to drive arbitrary LSP servers for structural analysis 
   - [Config file (server profiles)](#config-file-server-profiles)
   - [Stdin / jq recipes](#stdin--jq-recipes)
 - [Protocol support](#protocol-support)
+- [Changelog](#changelog)
 
 ## Quickstart
 
@@ -306,6 +307,10 @@ npx @mako10k/lsp-cli --server typescript-language-server --root . --format prett
 ## Protocol support
 
 - See `PROTOCOL_SUPPORT.md` for a feature-by-feature comparison of LSP capabilities vs what `lsp-cli` implements.
+
+## Changelog
+
+- See `CHANGELOG.md`.
 
 ### Config file (server profiles)
 - By default it searches:

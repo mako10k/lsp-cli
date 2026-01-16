@@ -1,6 +1,6 @@
 {
   "name": "@mako10k/lsp-cli",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Lightweight CLI for driving arbitrary LSP servers (MVP: rust-analyzer)",
   "license": "MIT",
   "publishConfig": {
