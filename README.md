@@ -324,23 +324,43 @@ npx @mako10k/lsp-cli --server typescript-language-server --root . --format prett
   - `<root>/lsp-cli.config.json`
 - You can specify explicitly with `--config <path>` (relative paths are treated as relative to `<root>`).
 
+The config supports:
+- `presets`: reusable server config snippets (referenced by `preset`).
+- `servers`: custom server profiles and overrides. `command` is required for custom servers unless provided via a `preset`.
+- `augment`: extra overrides merged into both built-in and custom profiles. When augmenting built-ins, `command` is optional.
+
 Example: `.lsp-cli.json`
 
 ```json
 {
-  "servers": {
-    "rust-analyzer": {
+  "presets": {
+    "ra-default": {
       "command": "rust-analyzer",
       "args": [],
       "defaultLanguageId": "rust",
       "languageIdByExt": {
         ".rs": "rust"
-      },
+      }
+    }
+  },
+  "augment": {
+    "rust-analyzer": {
       "initializationOptions": {
         "cargo": {
           "buildScripts": { "enable": true }
         }
       }
+    },
+    "typescript-language-server": {
+      "env": {
+        "TSS_LOG": "-level verbose"
+      }
+    }
+  },
+  "servers": {
+    "my-ra": {
+      "preset": "ra-default",
+      "cwd": "samples/rust-basic"
     }
   }
 }

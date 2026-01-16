@@ -8,6 +8,10 @@ export type ServerProfile = {
   name: string;
   command: string;
   args: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  waitMs?: number;
+  warmup?: { method: string; params?: unknown };
   languageIdForPath: (filePath: string) => string;
   initializationOptions?: unknown;
 };
@@ -47,7 +51,8 @@ export class LspClient {
 
     this.proc = spawn(this.server.command, this.server.args, {
       stdio: "pipe",
-      cwd: this.rootPath
+      cwd: this.server.cwd ?? this.rootPath,
+      env: this.server.env ? { ...process.env, ...this.server.env } : process.env
     });
 
     let stderr = "";
@@ -149,6 +154,18 @@ export class LspClient {
     }
 
     this.notify("initialized", {});
+
+    const warmup = this.server.warmup;
+    if (warmup?.method) {
+      try {
+        await Promise.race([
+          this.request(warmup.method, warmup.params),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("warmup timeout")), 1000))
+        ]);
+      } catch {
+        // best-effort warmup
+      }
+    }
   }
 
   async shutdown(): Promise<void> {

@@ -2,14 +2,22 @@ import fs from "node:fs";
 import path from "node:path";
 
 export type ServerConfig = {
-  command: string;
+  // Required for custom servers; optional when using `preset` or augmenting built-in profiles.
+  command?: string;
+  preset?: string;
   args?: string[];
   initializationOptions?: unknown;
   languageIdByExt?: Record<string, string>;
   defaultLanguageId?: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  waitMs?: number;
+  warmup?: { method: string; params?: unknown };
 };
 
 export type LspCliConfigFile = {
+  presets?: Record<string, ServerConfig>;
+  augment?: Record<string, ServerConfig>;
   servers?: Record<string, ServerConfig>;
 };
 
