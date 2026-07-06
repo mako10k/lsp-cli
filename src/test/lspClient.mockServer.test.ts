@@ -25,6 +25,24 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
 
   await client.start();
 
+  const init = await client.request("mock/getLastInitialize");
+  assert.equal(init?.capabilities?.workspace?.applyEdit, true);
+  assert.equal(init?.capabilities?.workspace?.workspaceEdit?.documentChanges, true);
+  assert.deepEqual(init?.capabilities?.workspace?.workspaceEdit?.resourceOperations, ["create", "rename", "delete"]);
+  assert.equal(init?.capabilities?.workspace?.workspaceEdit?.snippetEditSupport, undefined);
+  assert.equal(init?.capabilities?.textDocument?.synchronization?.didSave, true);
+  assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.versionSupport, true);
+  assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.markupMessageSupport, undefined);
+  assert.equal(init?.capabilities?.textDocument?.diagnostic?.relatedDocumentSupport, true);
+  assert.equal(init?.capabilities?.textDocument?.diagnostic?.markupMessageSupport, true);
+  assert.equal(init?.capabilities?.textDocument?.diagnostic?.versionSupport, undefined);
+  assert.deepEqual(init?.capabilities?.textDocument?.hover?.contentFormat, ["markdown", "plaintext"]);
+  assert.equal(init?.capabilities?.textDocument?.rename?.prepareSupport, true);
+  assert.equal(init?.capabilities?.textDocument?.codeAction?.disabledSupport, true);
+  assert.equal(init?.capabilities?.textDocument?.codeAction?.resolveSupport, undefined);
+  assert.equal(init?.capabilities?.textDocument?.semanticTokens?.requests?.full?.delta, true);
+  assert.deepEqual(init?.capabilities?.general?.positionEncodings, ["utf-16"]);
+
   await client.openTextDocument(file);
   const didOpen = await client.request("mock/getLastDidOpen");
   assert.equal(didOpen?.textDocument?.version, 1);
@@ -100,6 +118,41 @@ test("LspClient handles workspace/applyEdit initiated by server", { timeout: 10_
 
   const updated = await fs.readFile(file, "utf8");
   assert.equal(updated, "Zhello\n");
+
+  await client.shutdown();
+});
+
+test("LspClient allows server profiles to override client capabilities", { timeout: 10_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-mock-caps-"));
+  const serverScript = path.resolve(__dirname, "../mock/mockLspServer.js");
+
+  const client = new LspClient({
+    rootPath: root,
+    server: {
+      name: "mock",
+      command: process.execPath,
+      args: [serverScript],
+      languageIdForPath: () => "plaintext",
+      clientCapabilities: {
+        textDocument: {
+          hover: { contentFormat: ["plaintext"] },
+          semanticTokens: { requests: { full: false } }
+        },
+        workspace: {
+          workspaceEdit: { resourceOperations: ["create"] }
+        }
+      }
+    }
+  });
+
+  await client.start();
+  const init = await client.request("mock/getLastInitialize");
+
+  assert.deepEqual(init?.capabilities?.textDocument?.hover?.contentFormat, ["plaintext"]);
+  assert.equal(init?.capabilities?.textDocument?.semanticTokens?.requests?.full, false);
+  assert.equal(init?.capabilities?.textDocument?.semanticTokens?.requests?.range, true);
+  assert.deepEqual(init?.capabilities?.workspace?.workspaceEdit?.resourceOperations, ["create"]);
+  assert.equal(init?.capabilities?.workspace?.workspaceEdit?.documentChanges, true);
 
   await client.shutdown();
 });

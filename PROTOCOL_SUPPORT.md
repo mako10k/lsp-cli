@@ -13,6 +13,7 @@ This document summarizes representative Language Server Protocol (LSP) features 
 - **Mutating operations are dry-run by default**: Commands such as `rename` / `code-actions` / `apply-edits` do not modify files unless `--apply` is explicitly provided.
 - **Daemon-first + fallback**: Many commands prefer going through the daemon; if the daemon is not running / not reachable, they fall back to spawning the server over stdio (`withDaemonFallback`).
 - **Profile/server selection**: Choose the LSP server using `--server` and `--config` / `--server-cmd`.
+- **Client capabilities**: `initialize` advertises a conservative LSP 3.18-oriented baseline for the commands implemented here. Per-profile `clientCapabilities` in config are deep-merged on top for server-specific narrowing.
 
 ---
 
@@ -85,4 +86,3 @@ Even if the server supports these, the CLI currently has no dedicated command fo
 
 - The `*-daemon` commands such as `symbols-daemon` are “daemon-only”, but in normal usage the non-suffixed commands such as `symbols` run daemon-first.
 - `implementation` / `type-definition` run daemon-first (and fall back to direct stdio when needed).
-

@@ -13,6 +13,7 @@ export type ServerConfig = {
   env?: Record<string, string>;
   waitMs?: number;
   warmup?: { method: string; params?: unknown };
+  clientCapabilities?: Record<string, unknown>;
 };
 
 export type LspCliConfigFile = {

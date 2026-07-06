@@ -14,9 +14,11 @@ export type ServerProfile = {
   warmup?: { method: string; params?: unknown };
   languageIdForPath: (filePath: string) => string;
   initializationOptions?: unknown;
+  clientCapabilities?: ClientCapabilities;
 };
 
 type Position = { line: number; character: number };
+type ClientCapabilities = Record<string, any>;
 
 type TextDocumentItem = {
   uri: string;
@@ -119,29 +121,13 @@ export class LspClient {
     proc.once("error", handleError);
 
     try {
+      const capabilities = mergeClientCapabilities(defaultClientCapabilities(), this.server.clientCapabilities);
       const initRes = await Promise.race([
         this.request("initialize", {
           processId: process.pid,
           rootUri,
           workspaceFolders: [{ uri: rootUri, name: path.basename(this.rootPath) }],
-          capabilities: {
-            workspace: {
-              workspaceEdit: { documentChanges: true },
-              executeCommand: {},
-              symbol: {}
-            },
-            textDocument: {
-              documentSymbol: {},
-              references: {},
-              definition: {},
-              implementation: {},
-              typeDefinition: {},
-              hover: {},
-              signatureHelp: {},
-              rename: {},
-              codeAction: {}
-            }
-          },
+          capabilities,
           initializationOptions: this.server.initializationOptions
         }),
         exitPromise
@@ -354,6 +340,195 @@ export class LspClient {
       if (cur === handler) this.requestHandlers.delete(method);
     };
   }
+}
+
+export function defaultClientCapabilities(): ClientCapabilities {
+  return {
+    general: {
+      positionEncodings: ["utf-16"]
+    },
+    workspace: {
+      applyEdit: true,
+      workspaceEdit: {
+        documentChanges: true,
+        resourceOperations: ["create", "rename", "delete"]
+      },
+      executeCommand: {
+        dynamicRegistration: false
+      },
+      symbol: {
+        dynamicRegistration: false
+      }
+    },
+    textDocument: {
+      synchronization: {
+        dynamicRegistration: false,
+        didSave: true
+      },
+      publishDiagnostics: {
+        ...diagnosticCapabilities(),
+        versionSupport: true
+      },
+      diagnostic: {
+        ...diagnosticCapabilities(),
+        dynamicRegistration: false,
+        relatedDocumentSupport: true,
+        markupMessageSupport: true
+      },
+      documentSymbol: {
+        dynamicRegistration: false,
+        hierarchicalDocumentSymbolSupport: true,
+        symbolKind: { valueSet: numericRange(1, 26) },
+        tagSupport: { valueSet: [1] },
+        labelSupport: true
+      },
+      references: { dynamicRegistration: false },
+      definition: { dynamicRegistration: false },
+      implementation: { dynamicRegistration: false },
+      typeDefinition: { dynamicRegistration: false },
+      hover: {
+        dynamicRegistration: false,
+        contentFormat: ["markdown", "plaintext"]
+      },
+      signatureHelp: {
+        dynamicRegistration: false,
+        signatureInformation: {
+          documentationFormat: ["markdown", "plaintext"],
+          parameterInformation: {
+            labelOffsetSupport: true
+          },
+          activeParameterSupport: true
+        },
+        contextSupport: true
+      },
+      rename: {
+        dynamicRegistration: false,
+        prepareSupport: true
+      },
+      codeAction: {
+        dynamicRegistration: false,
+        isPreferredSupport: true,
+        disabledSupport: true,
+        dataSupport: true,
+        codeActionLiteralSupport: {
+          codeActionKind: {
+            valueSet: [
+              "",
+              "quickfix",
+              "refactor",
+              "refactor.extract",
+              "refactor.inline",
+              "refactor.rewrite",
+              "source",
+              "source.organizeImports",
+              "source.fixAll",
+              "notebook"
+            ]
+          }
+        }
+      },
+      completion: {
+        dynamicRegistration: false,
+        completionItem: {
+          documentationFormat: ["markdown", "plaintext"],
+          deprecatedSupport: true,
+          preselectSupport: true,
+          tagSupport: { valueSet: [1] },
+          insertReplaceSupport: false,
+          labelDetailsSupport: true
+        },
+        completionItemKind: {
+          valueSet: numericRange(1, 25)
+        },
+        contextSupport: true
+      },
+      formatting: { dynamicRegistration: false },
+      rangeFormatting: { dynamicRegistration: false },
+      documentHighlight: { dynamicRegistration: false },
+      inlayHint: { dynamicRegistration: false },
+      semanticTokens: {
+        dynamicRegistration: false,
+        requests: {
+          range: true,
+          full: { delta: true }
+        },
+        tokenTypes: [
+          "namespace",
+          "type",
+          "class",
+          "enum",
+          "interface",
+          "struct",
+          "typeParameter",
+          "parameter",
+          "variable",
+          "property",
+          "enumMember",
+          "event",
+          "function",
+          "method",
+          "macro",
+          "keyword",
+          "modifier",
+          "comment",
+          "string",
+          "number",
+          "regexp",
+          "operator",
+          "decorator"
+        ],
+        tokenModifiers: [
+          "declaration",
+          "definition",
+          "readonly",
+          "static",
+          "deprecated",
+          "abstract",
+          "async",
+          "modification",
+          "documentation",
+          "defaultLibrary"
+        ],
+        formats: ["relative"],
+        overlappingTokenSupport: false,
+        multilineTokenSupport: true
+      }
+    }
+  };
+}
+
+export function mergeClientCapabilities(base: ClientCapabilities, override?: ClientCapabilities): ClientCapabilities {
+  if (!override) return base;
+  return deepMerge(base, override) as ClientCapabilities;
+}
+
+function diagnosticCapabilities(): ClientCapabilities {
+  return {
+    relatedInformation: true,
+    tagSupport: { valueSet: [1, 2] },
+    codeDescriptionSupport: true,
+    dataSupport: true
+  };
+}
+
+function deepMerge(base: unknown, override: unknown): unknown {
+  if (!isPlainObject(base) || !isPlainObject(override)) return override;
+
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    out[key] = key in out ? deepMerge(out[key], value) : value;
+  }
+  return out;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function numericRange(start: number, end: number): number[] {
+  const out: number[] = [];
+  for (let i = start; i <= end; i++) out.push(i);
+  return out;
 }
 
 function computeIncrementalChange(oldText: string, newText: string): {

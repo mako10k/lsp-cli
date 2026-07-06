@@ -16,8 +16,30 @@ function mergeServerConfig(base: ServerConfig | undefined, override: ServerConfi
     cwd: override?.cwd ?? base?.cwd,
     env: { ...(base?.env ?? {}), ...(override?.env ?? {}) },
     waitMs: override?.waitMs ?? base?.waitMs,
-    warmup: override?.warmup ?? base?.warmup
+    warmup: override?.warmup ?? base?.warmup,
+    clientCapabilities: mergePlainObjects(base?.clientCapabilities, override?.clientCapabilities)
   };
+}
+
+function mergePlainObjects(
+  base: Record<string, unknown> | undefined,
+  override: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!base && !override) return undefined;
+  return deepMergePlainObjects(base ?? {}, override ?? {});
+}
+
+function deepMergePlainObjects(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const cur = out[key];
+    out[key] = isPlainObject(cur) && isPlainObject(value) ? deepMergePlainObjects(cur, value) : value;
+  }
+  return out;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function applyPreset(cfg: ServerConfig | undefined, presets: Record<string, ServerConfig> | undefined): ServerConfig | undefined {
@@ -62,6 +84,7 @@ function applyConfigToProfile(name: string, base: ServerProfile, cfg: ServerConf
     env: cfg.env ? { ...(base.env ?? {}), ...cfg.env } : base.env,
     waitMs: cfg.waitMs ?? base.waitMs,
     warmup: cfg.warmup ?? base.warmup,
+    clientCapabilities: cfg.clientCapabilities ?? base.clientCapabilities,
     languageIdForPath: hasLangOverride ? languageIdForPathFromCfg(cfg) : base.languageIdForPath
   };
 }
@@ -99,6 +122,7 @@ export function getServerProfile(
       env: mergedCfg?.env,
       waitMs: mergedCfg?.waitMs,
       warmup: mergedCfg?.warmup,
+      clientCapabilities: mergedCfg?.clientCapabilities,
       languageIdForPath: languageIdForPathFromCfg(mergedCfg ?? {})
     };
   }

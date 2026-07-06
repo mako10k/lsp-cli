@@ -11,6 +11,7 @@ let lastDidOpen: any = null;
 let lastDidChange: any = null;
 let lastDidSave: any = null;
 let lastDidChangeConfiguration: any = null;
+let lastInitialize: any = null;
 let initializeCount = 0;
 
 let serverReqSeq = 0;
@@ -54,6 +55,7 @@ async function onRequest(req: JsonRpcRequest) {
   switch (req.method) {
     case "initialize":
       initializeCount++;
+      lastInitialize = req.params;
       return respond(req.id, {
         capabilities: {
           // Prefer incremental so LspClient exercises didChange incremental.
@@ -198,6 +200,9 @@ async function onRequest(req: JsonRpcRequest) {
 
     case "mock/getLastDidChangeConfiguration":
       return respond(req.id, lastDidChangeConfiguration);
+
+    case "mock/getLastInitialize":
+      return respond(req.id, lastInitialize);
 
     case "mock/getLastDidSave":
       return respond(req.id, lastDidSave);

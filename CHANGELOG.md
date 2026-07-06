@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Updated the LSP protocol/runtime baseline for Node 22/24 and `vscode-languageserver-protocol` 3.18.x.
+- Expanded default `initialize` client capabilities and added per-profile `clientCapabilities` overrides.
+
 ## 0.1.3 (2026-01-16)
 
 ### Added

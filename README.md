@@ -328,7 +328,8 @@ The config supports:
 - `presets`: reusable server config snippets (referenced by `preset`).
 - `servers`: custom server profiles and overrides. `command` is required for custom servers unless provided via a `preset`.
 - `augment`: extra overrides merged into both built-in and custom profiles. When augmenting built-ins, `command` is optional.
-- Per-server fields include `args`, `initializationOptions`, `languageIdByExt`/`defaultLanguageId`, `cwd`, `env`, `waitMs`, and `warmup`.
+- Per-server fields include `args`, `initializationOptions`, `languageIdByExt`/`defaultLanguageId`, `cwd`, `env`, `waitMs`, `warmup`, and `clientCapabilities`.
+- `clientCapabilities` is deep-merged into the default initialize capabilities. Use it to disable or narrow advertised support for a specific server profile.
 
 Example: `.lsp-cli.json`
 
@@ -355,6 +356,13 @@ Example: `.lsp-cli.json`
     "typescript-language-server": {
       "env": {
         "TSS_LOG": "-level verbose"
+      },
+      "clientCapabilities": {
+        "textDocument": {
+          "hover": {
+            "contentFormat": ["plaintext"]
+          }
+        }
       }
     }
   },
