@@ -326,6 +326,24 @@ async function onRequest(req: JsonRpcRequest) {
       );
     }
 
+    case "textDocument/linkedEditingRange": {
+      const line = typeof req.params?.position?.line === "number" ? req.params.position.line : 0;
+      const character = typeof req.params?.position?.character === "number" ? req.params.position.character : 0;
+      return respond(req.id, {
+        ranges: [
+          {
+            start: { line, character },
+            end: { line, character: character + 3 }
+          },
+          {
+            start: { line: line + 1, character },
+            end: { line: line + 1, character: character + 3 }
+          }
+        ],
+        wordPattern: "[A-Za-z_][A-Za-z0-9_]*"
+      });
+    }
+
     case "textDocument/prepareRename":
       return respond(req.id, {
         range: {

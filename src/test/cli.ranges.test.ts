@@ -96,3 +96,19 @@ test("cli selection-ranges accepts multiple positions", { timeout: 10_000 }, asy
   assert.deepEqual(out[0]?.range?.start, { line: 0, character: 1 });
   assert.deepEqual(out[1]?.range?.start, { line: 1, character: 2 });
 });
+
+test("cli linked-editing-ranges returns LinkedEditingRanges", { timeout: 10_000 }, async () => {
+  const { root, file, cfgPath } = await makeMockWorkspace("lsp-cli-linked-editing-ranges-");
+
+  const res = await runCli(["--root", root, "--server", "mock", "--config", cfgPath, "--format", "json", "linked-editing-ranges", file, "0", "1"], {
+    timeoutMs: 5000
+  });
+
+  assert.equal(res.code, 0, res.stderr);
+
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.ranges.length, 2);
+  assert.deepEqual(out.ranges[0]?.start, { line: 0, character: 1 });
+  assert.deepEqual(out.ranges[1]?.start, { line: 1, character: 1 });
+  assert.equal(out.wordPattern, "[A-Za-z_][A-Za-z0-9_]*");
+});

@@ -66,6 +66,7 @@ Legend:
 | Highlight | `textDocument/documentHighlight` | `document-highlight` | ✅ | Returns `DocumentHighlight[]` |
 | Folding ranges | `textDocument/foldingRange` | `folding-ranges` | ✅ | Returns `FoldingRange[]` |
 | Selection ranges | `textDocument/selectionRange` | `selection-ranges` | ✅ | Returns `SelectionRange[]`; supports multiple positions |
+| Linked editing | `textDocument/linkedEditingRange` | `linked-editing-ranges` | ✅ | Returns `LinkedEditingRanges` |
 | Diagnostics | `textDocument/diagnostic` | `diagnostics` | ✅ | Pulls `DocumentDiagnosticReport`; supports previous result id |
 | Diagnostics | `workspace/diagnostic` | `workspace-diagnostics` | ✅ | Pulls `WorkspaceDiagnosticReport`; supports previous result ids |
 | Inlay hints | `textDocument/inlayHint` | `inlay-hints` | ✅ | Returns `InlayHint[]` |
@@ -83,7 +84,6 @@ Legend:
 Even if the server supports these, the CLI currently has no dedicated command for them (you may still be able to invoke them via `daemon-request`, etc.).
 
 - `textDocument/codeLens`
-- `textDocument/linkedEditingRange`
 - `workspace/willRenameFiles` / `workspace/didRenameFiles`
 
 ---

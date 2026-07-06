@@ -532,10 +532,10 @@ function printHelpCommands(): void {
       "Refactor / edits (dry-run by default):",
       "  rename  code-actions  apply-edits  delete-symbol",
       "",
-      "Formatting / diagnostics / tokens:",
+      "Formatting / ranges / diagnostics / tokens:",
       "  format  format-range  completion  document-highlight  folding-ranges",
-      "  selection-ranges  diagnostics  workspace-diagnostics  inlay-hints",
-      "  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
+      "  selection-ranges  linked-editing-ranges  diagnostics  workspace-diagnostics",
+      "  inlay-hints  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
       "  prepare-rename  did-save",
       "  did-change-configuration",
       "",
@@ -1775,6 +1775,83 @@ program
           id: newRequestId("selrng"),
           cmd: "lsp/request",
           method: "textDocument/selectionRange",
+          params
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("linked-editing-ranges")
+  .description("textDocument/linkedEditingRange")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli linked-editing-ranges <file> <line> <col>",
+      "  lsp-cli linked-editing-ranges --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - Returns the raw LinkedEditingRanges result: {ranges:[...], wordPattern?}.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic linked-editing-ranges src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line: number; col: number };
+      file = params.file;
+      line = String(params.line);
+      col = String(params.col);
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file || line == null || col == null) {
+      throw new Error("file/line/col are required (or use --stdin)");
+    }
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    const params = {
+      textDocument: { uri },
+      position: { line: parseIntStrict(line), character: parseIntStrict(col) }
+    };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/linkedEditingRange", params);
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("linkrng"),
+          cmd: "lsp/request",
+          method: "textDocument/linkedEditingRange",
           params
         });
       }

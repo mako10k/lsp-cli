@@ -41,6 +41,7 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   assert.equal(init?.capabilities?.textDocument?.foldingRange?.dynamicRegistration, false);
   assert.equal(init?.capabilities?.textDocument?.foldingRange?.foldingRange?.collapsedText, true);
   assert.equal(init?.capabilities?.textDocument?.selectionRange?.dynamicRegistration, false);
+  assert.equal(init?.capabilities?.textDocument?.linkedEditingRange?.dynamicRegistration, false);
   assert.deepEqual(init?.capabilities?.textDocument?.hover?.contentFormat, ["markdown", "plaintext"]);
   assert.equal(init?.capabilities?.textDocument?.rename?.prepareSupport, true);
   assert.equal(init?.capabilities?.textDocument?.codeAction?.disabledSupport, true);

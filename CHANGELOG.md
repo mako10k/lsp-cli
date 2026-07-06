@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added a `linked-editing-ranges` command for LSP linked editing range queries.
 - Added `folding-ranges` and `selection-ranges` commands for LSP document range queries.
 - Added daemon event kinds for `window/logMessage`, `window/showMessage`, and `$/progress`.
 - Added `diagnostics` and `workspace-diagnostics` commands for LSP pull diagnostics.

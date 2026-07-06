@@ -464,6 +464,7 @@ export function defaultClientCapabilities(): ClientCapabilities {
       rangeFormatting: { dynamicRegistration: false },
       documentHighlight: { dynamicRegistration: false },
       selectionRange: { dynamicRegistration: false },
+      linkedEditingRange: { dynamicRegistration: false },
       foldingRange: {
         dynamicRegistration: false,
         lineFoldingOnly: false,

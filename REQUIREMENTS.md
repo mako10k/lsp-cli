@@ -30,7 +30,7 @@
 
 ### Language Features
 
-- `completion`, `document-highlight`, `folding-ranges`, `selection-ranges`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`。
+- `completion`, `document-highlight`, `folding-ranges`, `selection-ranges`, `linked-editing-ranges`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`。
 - `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`。
 - `prepare-rename`, `did-change-configuration`, `did-save`。
 
@@ -79,6 +79,6 @@
 
 ## 8. Backlog
 
-- `codeLens`, `linkedEditingRange` の専用コマンド化。
+- `codeLens` の専用コマンド化。
 - daemon event queue の保持上限と永続化方針。
 - release workflow と CHANGELOG/version bump の自動化。
