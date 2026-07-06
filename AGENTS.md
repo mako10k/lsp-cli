@@ -10,6 +10,8 @@ This is a Node.js/TypeScript CLI for driving LSP servers. The Commander entrypoi
 - `npm run build`: compile TypeScript from `src/` into `dist/`.
 - `npm run typecheck`: run TypeScript checks without emitting files.
 - `npm test`: build, then run `node --test dist/test/**/*.test.js`.
+- `npm run release:check`: run typecheck, build, unit tests, and package content checks via `npm pack --dry-run --json`.
+- `npm run version:bump -- patch`: update package metadata without creating a tag; requires a clean git worktree.
 - `npm run start -- --help`: run the built CLI.
 - `node dist/cli.js --root samples/rust-basic ping`: smoke test the CLI.
 

@@ -68,6 +68,8 @@
 - `npm run build`: `src/` から `dist/` へ compile。
 - `npm run test:unit`: build 済み `dist/test/**/*.test.js` を Node test runner で実行。
 - `npm test`: build 後に `test:unit` を実行。
+- `npm run release:check`: `typecheck`, `build`, `test:unit`, `npm pack --dry-run --json` を順に実行し、npm package に `dist/test/`, `dist/mock/`, `src/`, `scripts/` が混入しないことを確認する。
+- `npm run version:bump -- <patch|minor|major|x.y.z>`: git worktree が clean な場合のみ `package.json` / `package-lock.json` の version を更新する。tag は作成しない。
 - CI は Node 22 / 24 matrix で `npm ci`, `typecheck`, `build`, `test:unit` を実行する。
 
 ## 7. 非スコープ
@@ -80,4 +82,4 @@
 
 ## 8. Backlog
 
-- release workflow と CHANGELOG/version bump の自動化。
+- 現時点の既知未実装項目はなし。新規候補は実装判断時にここへ追加する。

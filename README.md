@@ -44,13 +44,18 @@ npm install
 npm run build
 npm run typecheck
 npm test
+npm run release:check
 
 # Install the repo locally as a CLI (provides the lsp-cli command)
 npm link
 lsp-cli --help
+
+# Prepare a release version bump without creating a tag
+npm run version:bump -- patch
 ```
 
 `npm test` builds first, then runs `npm run test:unit` with an explicit Node test runner configuration. Use `npm run test:unit` when `dist/` is already current.
+`npm run release:check` runs typecheck, build, unit tests, and `npm pack --dry-run --json`; it also fails if development-only files enter the npm package. `npm run version:bump -- <patch|minor|major|x.y.z>` requires a clean git worktree and updates package metadata only; update `CHANGELOG.md` before the release commit.
 
 ## Sample (for testing)
 
