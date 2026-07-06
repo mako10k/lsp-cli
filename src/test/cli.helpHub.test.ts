@@ -49,6 +49,8 @@ test("cli per-command help includes appendices for common commands", async () =>
     "ws-symbols",
     "completion",
     "document-highlight",
+    "folding-ranges",
+    "selection-ranges",
     "diagnostics",
     "workspace-diagnostics",
     "inlay-hints",

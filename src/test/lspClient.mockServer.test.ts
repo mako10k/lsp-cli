@@ -31,12 +31,16 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   assert.deepEqual(init?.capabilities?.workspace?.workspaceEdit?.resourceOperations, ["create", "rename", "delete"]);
   assert.equal(init?.capabilities?.workspace?.workspaceEdit?.snippetEditSupport, undefined);
   assert.equal(init?.capabilities?.workspace?.diagnostics?.refreshSupport, false);
+  assert.equal(init?.capabilities?.workspace?.foldingRange?.refreshSupport, false);
   assert.equal(init?.capabilities?.textDocument?.synchronization?.didSave, true);
   assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.versionSupport, true);
   assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.markupMessageSupport, undefined);
   assert.equal(init?.capabilities?.textDocument?.diagnostic?.relatedDocumentSupport, true);
   assert.equal(init?.capabilities?.textDocument?.diagnostic?.markupMessageSupport, true);
   assert.equal(init?.capabilities?.textDocument?.diagnostic?.versionSupport, undefined);
+  assert.equal(init?.capabilities?.textDocument?.foldingRange?.dynamicRegistration, false);
+  assert.equal(init?.capabilities?.textDocument?.foldingRange?.foldingRange?.collapsedText, true);
+  assert.equal(init?.capabilities?.textDocument?.selectionRange?.dynamicRegistration, false);
   assert.deepEqual(init?.capabilities?.textDocument?.hover?.contentFormat, ["markdown", "plaintext"]);
   assert.equal(init?.capabilities?.textDocument?.rename?.prepareSupport, true);
   assert.equal(init?.capabilities?.textDocument?.codeAction?.disabledSupport, true);

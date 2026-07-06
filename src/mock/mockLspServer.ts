@@ -291,6 +291,41 @@ async function onRequest(req: JsonRpcRequest) {
         }
       ]);
 
+    case "textDocument/foldingRange":
+      return respond(req.id, [
+        {
+          startLine: 0,
+          startCharacter: 0,
+          endLine: 2,
+          endCharacter: 1,
+          kind: "region",
+          collapsedText: "mock region"
+        }
+      ]);
+
+    case "textDocument/selectionRange": {
+      const positions = Array.isArray(req.params?.positions) ? req.params.positions : [];
+      return respond(
+        req.id,
+        positions.map((pos: any) => {
+          const line = typeof pos?.line === "number" ? pos.line : 0;
+          const character = typeof pos?.character === "number" ? pos.character : 0;
+          return {
+            range: {
+              start: { line, character },
+              end: { line, character: character + 1 }
+            },
+            parent: {
+              range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 }
+              }
+            }
+          };
+        })
+      );
+    }
+
     case "textDocument/prepareRename":
       return respond(req.id, {
         range: {

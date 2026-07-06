@@ -373,6 +373,9 @@ export function defaultClientCapabilities(): ClientCapabilities {
       },
       diagnostics: {
         refreshSupport: false
+      },
+      foldingRange: {
+        refreshSupport: false
       }
     },
     textDocument: {
@@ -460,6 +463,13 @@ export function defaultClientCapabilities(): ClientCapabilities {
       formatting: { dynamicRegistration: false },
       rangeFormatting: { dynamicRegistration: false },
       documentHighlight: { dynamicRegistration: false },
+      selectionRange: { dynamicRegistration: false },
+      foldingRange: {
+        dynamicRegistration: false,
+        lineFoldingOnly: false,
+        foldingRangeKind: { valueSet: ["comment", "imports", "region"] },
+        foldingRange: { collapsedText: true }
+      },
       inlayHint: { dynamicRegistration: false },
       semanticTokens: {
         dynamicRegistration: false,

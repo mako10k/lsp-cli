@@ -133,6 +133,21 @@ function parseIntStrict(v: string): number {
   return Number.parseInt(v, 10);
 }
 
+type CliPosition = { line: number; character: number };
+
+function normalizePosition(value: any): CliPosition {
+  const line = value?.line;
+  const character = value?.character ?? value?.col;
+  if (line == null || character == null) throw new Error("position requires line and character/col");
+  return { line: parseIntStrict(String(line)), character: parseIntStrict(String(character)) };
+}
+
+function parsePositionsJson(raw: string): CliPosition[] {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error("positions must be a JSON array");
+  return parsed.map((p) => normalizePosition(p));
+}
+
 function formatCodeActionsPretty(items: Array<{ index: number; title: string; kind?: string; isPreferred?: boolean; hasEdit: boolean; hasCommand: boolean }>): string {
   if (items.length === 0) return "(no code actions)";
   return items
@@ -517,10 +532,11 @@ function printHelpCommands(): void {
       "Refactor / edits (dry-run by default):",
       "  rename  code-actions  apply-edits  delete-symbol",
       "",
-      "Formatting / tokens:",
-      "  format  format-range  completion  document-highlight  inlay-hints",
+      "Formatting / diagnostics / tokens:",
+      "  format  format-range  completion  document-highlight  folding-ranges",
+      "  selection-ranges  diagnostics  workspace-diagnostics  inlay-hints",
       "  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
-      "  diagnostics  workspace-diagnostics  prepare-rename  did-save",
+      "  prepare-rename  did-save",
       "  did-change-configuration",
       "",
       "Batch / advanced:",
@@ -1613,6 +1629,153 @@ program
             textDocument: { uri },
             position: { line: parseIntStrict(line), character: parseIntStrict(col) }
           }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("folding-ranges")
+  .description("textDocument/foldingRange")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli folding-ranges <file>",
+      "  lsp-cli folding-ranges --stdin",
+      "",
+      "NOTES:",
+      "  - Sends textDocument/foldingRange and returns raw FoldingRange[].",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic folding-ranges src/main.rs",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string };
+      file = params.file;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    const params = { textDocument: { uri } };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/foldingRange", params);
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("fold"),
+          cmd: "lsp/request",
+          method: "textDocument/foldingRange",
+          params
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("selection-ranges")
+  .description("textDocument/selectionRange")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .argument("[line]", "0-based line")
+  .argument("[col]", "0-based column")
+  .option("--positions <json>", "JSON array of positions ({line,character} or {line,col})")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli selection-ranges <file> <line> <col>",
+      "  lsp-cli selection-ranges --positions '[{\"line\":0,\"character\":0}]' <file>",
+      "  lsp-cli selection-ranges --stdin",
+      "",
+      "NOTES:",
+      "  - line/col are 0-based (LSP compliant).",
+      "  - --positions accepts one or more LSP positions and returns SelectionRange[].",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic selection-ranges src/main.rs 0 0",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string, lineArg?: string, colArg?: string, cmdOpts?: { positions?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let line = lineArg;
+    let col = colArg;
+    let positions: CliPosition[] | null = null;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; line?: number; col?: number; positions?: any[] };
+      file = params.file;
+      if (Array.isArray(params.positions)) positions = params.positions.map((p) => normalizePosition(p));
+      else if (params.line != null && params.col != null) {
+        line = String(params.line);
+        col = String(params.col);
+      }
+    } else {
+      if (cmdOpts?.positions) positions = parsePositionsJson(cmdOpts.positions);
+      if (file === "-") file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+    if (!positions) {
+      if (line == null || col == null) throw new Error("line/col or --positions are required");
+      positions = [{ line: parseIntStrict(line), character: parseIntStrict(col) }];
+    }
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    const params = { textDocument: { uri }, positions };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/selectionRange", params);
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("selrng"),
+          cmd: "lsp/request",
+          method: "textDocument/selectionRange",
+          params
         });
       }
     );

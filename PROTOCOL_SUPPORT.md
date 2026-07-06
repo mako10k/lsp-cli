@@ -64,6 +64,8 @@ Legend:
 | Formatting | `textDocument/rangeFormatting` | `format-range` | ✅ | Returns edits; apply with `--apply` |
 | Completion | `textDocument/completion` | `completion` | ✅ | Returns `CompletionList`/items |
 | Highlight | `textDocument/documentHighlight` | `document-highlight` | ✅ | Returns `DocumentHighlight[]` |
+| Folding ranges | `textDocument/foldingRange` | `folding-ranges` | ✅ | Returns `FoldingRange[]` |
+| Selection ranges | `textDocument/selectionRange` | `selection-ranges` | ✅ | Returns `SelectionRange[]`; supports multiple positions |
 | Diagnostics | `textDocument/diagnostic` | `diagnostics` | ✅ | Pulls `DocumentDiagnosticReport`; supports previous result id |
 | Diagnostics | `workspace/diagnostic` | `workspace-diagnostics` | ✅ | Pulls `WorkspaceDiagnosticReport`; supports previous result ids |
 | Inlay hints | `textDocument/inlayHint` | `inlay-hints` | ✅ | Returns `InlayHint[]` |
@@ -82,8 +84,6 @@ Even if the server supports these, the CLI currently has no dedicated command fo
 
 - `textDocument/codeLens`
 - `textDocument/linkedEditingRange`
-- `textDocument/selectionRange`
-- `textDocument/foldingRange`
 - `workspace/willRenameFiles` / `workspace/didRenameFiles`
 
 ---
