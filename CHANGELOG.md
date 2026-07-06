@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.4 (2026-07-06)
+
 ### Added
 - Added release helper scripts for version bumping and pre-publish verification.
 - Added a `code-lenses` command with optional `codeLens/resolve` support.
