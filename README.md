@@ -121,6 +121,8 @@ Global options must appear **before** the command for reliable parsing.
 - `--wait-ms <n>`: wait before some requests (ms; helps rust-analyzer warm-up)
 - `--daemon-log <path>`: daemon log sink (auto-start); `discard|default|<path>`
 
+Daemon sockets are scoped by root, server name, and explicit `--config` / `--server-cmd` overrides. This prevents commands with different server identities from reusing the wrong daemon.
+
 ### Command index
 
 Core:

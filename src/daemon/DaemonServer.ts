@@ -45,7 +45,7 @@ export class DaemonServer {
   }
 
   getSocketPath(): string {
-    return resolveDaemonEndpoint(this.rootPath, this.serverName).socketPath;
+    return resolveDaemonEndpoint(this.rootPath, this.serverName, { configPath: this.configPath, serverCmd: this.serverCmd }).socketPath;
   }
 
   async start(): Promise<void> {
@@ -54,7 +54,7 @@ export class DaemonServer {
     const sock = this.getSocketPath();
     this.sockPath = sock;
 
-    await ensureEndpointDir(resolveDaemonEndpoint(this.rootPath, this.serverName));
+    await ensureEndpointDir(resolveDaemonEndpoint(this.rootPath, this.serverName, { configPath: this.configPath, serverCmd: this.serverCmd }));
 
     // Remove stale socket file.
     try {

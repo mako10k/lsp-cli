@@ -39,6 +39,7 @@
 
 - `daemon-status`, `daemon-stop`, `daemon-log`。
 - `server-status`, `server-stop`, `server-restart`。
+- daemon endpoint は root, server name, 明示 `--config`, `--server-cmd` の組み合わせで分離し、異なる server identity の既存 daemon を誤再利用しない。
 - `events --kind diagnostics|log|message|progress`: daemon が受け取った `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, `$/progress` を cursor 付きで pull 取得する。
 - daemon event queue は既定で 1000 件をメモリ内保持し、永続化しない。古い cursor の取り逃しは `truncated` / `droppedBeforeCursor` で通知する。
 - `daemon-request`: daemon 経由で任意 LSP request を送る。

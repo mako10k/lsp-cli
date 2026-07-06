@@ -93,7 +93,7 @@ test("cli daemon-stop waits until socket is gone", { timeout: 10_000 }, async ()
   }
 
   // Should not be able to connect anymore.
-  const { socketPath } = resolveDaemonEndpoint(root, "mock");
+  const { socketPath } = resolveDaemonEndpoint(root, "mock", { configPath: cfgPath });
   await waitForConnectFailure(socketPath, 500);
 });
 

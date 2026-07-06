@@ -87,7 +87,7 @@ function diagnosticReportFromPublishDiagnostics(diagnostics: unknown[]): { kind:
 async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
   const root = path.resolve(opts.root ?? process.cwd());
   const serverName = opts.server;
-  const { socketPath, defaultLogPath } = resolveDaemonEndpoint(root, serverName);
+  const { socketPath, defaultLogPath } = resolveDaemonEndpoint(root, serverName, { configPath: opts.config, serverCmd: opts.serverCmd });
 
   const client = await connectDaemonWithAutostart(opts, socketPath);
   try {
@@ -939,7 +939,7 @@ program
     const opts = program.opts() as GlobalOpts;
 
     const root = path.resolve(opts.root ?? process.cwd());
-    const { socketPath } = resolveDaemonEndpoint(root, opts.server);
+    const { socketPath } = resolveDaemonEndpoint(root, opts.server, { configPath: opts.config, serverCmd: opts.serverCmd });
 
     const res = await withDaemonClient(opts, async (client) => {
       return await client.request({ id: newRequestId("stop"), cmd: "daemon/stop" });
