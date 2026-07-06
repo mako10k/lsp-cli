@@ -520,7 +520,8 @@ function printHelpCommands(): void {
       "Formatting / tokens:",
       "  format  format-range  completion  document-highlight  inlay-hints",
       "  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
-      "  prepare-rename  did-change-configuration",
+      "  diagnostics  workspace-diagnostics  prepare-rename  did-save",
+      "  did-change-configuration",
       "",
       "Batch / advanced:",
       "  batch  daemon-request",
@@ -551,6 +552,7 @@ function printHelpExamples(): void {
       "",
       "3) Pull diagnostics (daemon events)",
       "  lsp-cli --root <root> events --kind diagnostics --since 0",
+      "  lsp-cli --root <root> diagnostics <file>",
       "",
       "4) Batch (JSONL)",
       "  cat <<'JSONL' | lsp-cli --root <root> --format json batch",
@@ -1925,6 +1927,155 @@ program
           cmd: "lsp/request",
           method: "textDocument/semanticTokens/full/delta",
           params: { textDocument: { uri }, previousResultId }
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("diagnostics")
+  .description("textDocument/diagnostic")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .option("--previous-result-id <id>", "previous resultId for incremental diagnostic pulls")
+  .option("--identifier <id>", "diagnostic provider identifier")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli diagnostics <file>",
+      "  lsp-cli diagnostics --previous-result-id <id> <file>",
+      "  lsp-cli diagnostics --stdin",
+      "",
+      "NOTES:",
+      "  - Sends textDocument/diagnostic and returns the raw DocumentDiagnosticReport.",
+      "  - The server may return {kind:\"full\", items:[...]} or {kind:\"unchanged\", resultId:\"...\"}.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic diagnostics src/main.rs",
+      "  lsp-cli --root samples/rust-basic --jq '.items | length' diagnostics src/main.rs",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string, cmdOpts?: { previousResultId?: string; identifier?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let previousResultId = cmdOpts?.previousResultId;
+    let identifier = cmdOpts?.identifier;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; previousResultId?: string; identifier?: string };
+      file = params.file;
+      previousResultId = params.previousResultId;
+      identifier = params.identifier;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+    const params = {
+      textDocument: { uri },
+      ...(identifier ? { identifier } : {}),
+      ...(previousResultId ? { previousResultId } : {})
+    };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          return await client.request("textDocument/diagnostic", params);
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("diag"),
+          cmd: "lsp/request",
+          method: "textDocument/diagnostic",
+          params
+        });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("workspace-diagnostics")
+  .description("workspace/diagnostic")
+  .option("--previous-result-ids <json>", "JSON array of {uri,value} previous result ids")
+  .option("--identifier <id>", "diagnostic provider identifier")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli workspace-diagnostics",
+      "  lsp-cli workspace-diagnostics --previous-result-ids '[{\"uri\":\"file:///a.ts\",\"value\":\"r1\"}]'",
+      "  lsp-cli workspace-diagnostics --stdin",
+      "",
+      "NOTES:",
+      "  - Sends workspace/diagnostic and returns the raw WorkspaceDiagnosticReport.",
+      "  - previousResultIds is optional at the CLI level; when omitted, [] is sent.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root . workspace-diagnostics",
+      "  lsp-cli --root . --jq '.items[] | .uri' workspace-diagnostics",
+      ""
+    ].join("\n")
+  )
+  .action(async (cmdOpts?: { previousResultIds?: string; identifier?: string }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let previousResultIds: any[] = [];
+    let identifier = cmdOpts?.identifier;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { previousResultIds?: any[]; identifier?: string };
+      previousResultIds = Array.isArray(params.previousResultIds) ? params.previousResultIds : [];
+      identifier = params.identifier;
+    } else if (cmdOpts?.previousResultIds) {
+      const parsed = JSON.parse(String(cmdOpts.previousResultIds));
+      if (!Array.isArray(parsed)) throw new Error("--previous-result-ids must be a JSON array");
+      previousResultIds = parsed;
+    }
+
+    const params = {
+      previousResultIds,
+      ...(identifier ? { identifier } : {})
+    };
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          return await client.request("workspace/diagnostic", params);
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        return await client.request({
+          id: newRequestId("wdiag"),
+          cmd: "lsp/request",
+          method: "workspace/diagnostic",
+          params
         });
       }
     );

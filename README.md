@@ -127,8 +127,8 @@ Read-only navigation:
 Edits and refactoring (mutating; dry-run by default):
 - `rename`, `code-actions`, `apply-edits`, `delete-symbol`
 
-Formatting and tokens:
-- `format`, `format-range`, `completion`, `document-highlight`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`, `did-save`
+Formatting, diagnostics, and tokens:
+- `format`, `format-range`, `completion`, `document-highlight`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`, `did-save`
 
 Daemon and operations:
 - `daemon-status`, `daemon-stop`, `daemon-log`, `events`, `server-status`, `server-stop`, `server-restart`, `did-change-configuration`
@@ -165,6 +165,8 @@ Typical arguments are:
 - `format-range <file> <startLine> <startCol> <endLine> <endCol> [--apply]`
 - `completion <file> <line> <col>`
 - `document-highlight <file> <line> <col>`
+- `diagnostics <file> [--previous-result-id <id>]`
+- `workspace-diagnostics [--previous-result-ids '<json>']`
 - `inlay-hints <file> <startLine> <startCol> <endLine> <endCol>`
 - `semantic-tokens-full <file>`
 - `semantic-tokens-range <file> <startLine> <startCol> <endLine> <endCol>`
@@ -206,6 +208,10 @@ npx @mako10k/lsp-cli --root samples/rust-basic symbols samples/rust-basic/src/ma
 
 # then pull diagnostics
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0
+
+# or request pull diagnostics directly
+npx @mako10k/lsp-cli --root samples/rust-basic diagnostics samples/rust-basic/src/main.rs
+npx @mako10k/lsp-cli --root samples/rust-basic workspace-diagnostics
 ```
 
 ### 2) "Navigate" (definition → references)

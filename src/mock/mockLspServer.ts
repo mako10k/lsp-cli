@@ -334,6 +334,66 @@ async function onRequest(req: JsonRpcRequest) {
         ]
       });
 
+    case "textDocument/diagnostic": {
+      const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      if (req.params?.previousResultId === "mock-doc-result") {
+        return respond(req.id, {
+          kind: "unchanged",
+          resultId: "mock-doc-result"
+        });
+      }
+
+      return respond(req.id, {
+        kind: "full",
+        resultId: "mock-doc-result",
+        items: [
+          {
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 1 }
+            },
+            severity: 1,
+            source: "mock",
+            message: `mock diagnostic for ${uri}`
+          }
+        ]
+      });
+    }
+
+    case "workspace/diagnostic": {
+      const previous = Array.isArray(req.params?.previousResultIds) ? req.params.previousResultIds : [];
+      const hasPrevious = previous.some((item: any) => item?.uri === "file:///workspace-a.ts" && item?.value === "mock-ws-result");
+
+      return respond(req.id, {
+        items: [
+          hasPrevious
+            ? {
+                kind: "unchanged",
+                uri: "file:///workspace-a.ts",
+                version: null,
+                resultId: "mock-ws-result"
+              }
+            : {
+                kind: "full",
+                uri: "file:///workspace-a.ts",
+                version: null,
+                resultId: "mock-ws-result",
+                items: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 1 }
+                    },
+                    severity: 2,
+                    source: "mock",
+                    message: "mock workspace diagnostic"
+                  }
+                ]
+              }
+        ]
+      });
+    }
+
     case "textDocument/definition": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
       return respond(req.id, [

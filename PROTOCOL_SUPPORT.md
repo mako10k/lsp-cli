@@ -64,6 +64,8 @@ Legend:
 | Formatting | `textDocument/rangeFormatting` | `format-range` | ✅ | Returns edits; apply with `--apply` |
 | Completion | `textDocument/completion` | `completion` | ✅ | Returns `CompletionList`/items |
 | Highlight | `textDocument/documentHighlight` | `document-highlight` | ✅ | Returns `DocumentHighlight[]` |
+| Diagnostics | `textDocument/diagnostic` | `diagnostics` | ✅ | Pulls `DocumentDiagnosticReport`; supports previous result id |
+| Diagnostics | `workspace/diagnostic` | `workspace-diagnostics` | ✅ | Pulls `WorkspaceDiagnosticReport`; supports previous result ids |
 | Inlay hints | `textDocument/inlayHint` | `inlay-hints` | ✅ | Returns `InlayHint[]` |
 | Semantic tokens | `textDocument/semanticTokens/full` | `semantic-tokens-full` | ✅ | Raw tokens (server-dependent legend) |
 | Semantic tokens | `textDocument/semanticTokens/range` | `semantic-tokens-range` | ✅ | Raw tokens |

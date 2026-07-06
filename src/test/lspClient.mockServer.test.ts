@@ -30,6 +30,7 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   assert.equal(init?.capabilities?.workspace?.workspaceEdit?.documentChanges, true);
   assert.deepEqual(init?.capabilities?.workspace?.workspaceEdit?.resourceOperations, ["create", "rename", "delete"]);
   assert.equal(init?.capabilities?.workspace?.workspaceEdit?.snippetEditSupport, undefined);
+  assert.equal(init?.capabilities?.workspace?.diagnostics?.refreshSupport, false);
   assert.equal(init?.capabilities?.textDocument?.synchronization?.didSave, true);
   assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.versionSupport, true);
   assert.equal(init?.capabilities?.textDocument?.publishDiagnostics?.markupMessageSupport, undefined);

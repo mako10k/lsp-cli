@@ -370,6 +370,9 @@ export function defaultClientCapabilities(): ClientCapabilities {
       },
       symbol: {
         dynamicRegistration: false
+      },
+      diagnostics: {
+        refreshSupport: false
       }
     },
     textDocument: {

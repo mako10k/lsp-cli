@@ -4,6 +4,7 @@
 
 ### Added
 - Added daemon event kinds for `window/logMessage`, `window/showMessage`, and `$/progress`.
+- Added `diagnostics` and `workspace-diagnostics` commands for LSP pull diagnostics.
 
 ### Changed
 - Updated the LSP protocol/runtime baseline for Node 22/24 and `vscode-languageserver-protocol` 3.18.x.
