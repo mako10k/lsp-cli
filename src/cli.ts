@@ -73,6 +73,17 @@ function daemonEventPayload(event: any): any {
   return event?.payload ?? event?.params;
 }
 
+function isMethodNotFoundError(e: unknown): boolean {
+  const err = e as any;
+  const code = err?.code ?? err?.data?.code;
+  const message = String(err?.message ?? e).toLowerCase();
+  return code === -32601 || message.includes("method not found");
+}
+
+function diagnosticReportFromPublishDiagnostics(diagnostics: unknown[]): { kind: "full"; items: unknown[] } {
+  return { kind: "full", items: diagnostics };
+}
+
 async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
   const root = path.resolve(opts.root ?? process.cwd());
   const serverName = opts.server;
@@ -102,6 +113,78 @@ async function withDaemonFallback<T>(opts: GlobalOpts, runDirect: () => Promise<
     });
   } catch {
     return await runDirect();
+  }
+}
+
+async function requestDocumentDiagnosticsDirect(client: LspClient, filePath: string, uri: string, params: any, waitMs: number): Promise<any> {
+  let published: unknown[] | null = null;
+  const stop = client.onNotification("textDocument/publishDiagnostics", (event) => {
+    if (String(event?.uri ?? "") !== uri) return;
+    published = Array.isArray(event?.diagnostics) ? event.diagnostics : [];
+  });
+
+  try {
+    await client.openTextDocument(filePath);
+    try {
+      return await client.request("textDocument/diagnostic", params);
+    } catch (e) {
+      if (!isMethodNotFoundError(e)) throw e;
+
+      const deadline = Date.now() + Math.max(0, waitMs);
+      while (published == null && Date.now() < deadline) {
+        await sleep(25);
+      }
+      return diagnosticReportFromPublishDiagnostics(published ?? []);
+    }
+  } finally {
+    stop();
+  }
+}
+
+async function requestDocumentDiagnosticsDaemon(client: DaemonClient, uri: string, params: any, waitMs: number): Promise<any> {
+  const mark = await client.request<{ nextCursor?: number; newestCursor?: number | null }>({
+    id: newRequestId("diag-mark"),
+    cmd: "events/get",
+    kind: "diagnostics",
+    since: 0,
+    limit: 1000
+  });
+  const startCursor = typeof mark.newestCursor === "number" ? mark.newestCursor : typeof mark.nextCursor === "number" ? mark.nextCursor : 0;
+
+  try {
+    return await client.request({
+      id: newRequestId("diag"),
+      cmd: "lsp/request",
+      method: "textDocument/diagnostic",
+      params
+    });
+  } catch (e) {
+    if (!isMethodNotFoundError(e)) throw e;
+
+    let since = startCursor;
+    const deadline = Date.now() + Math.max(0, waitMs);
+    while (true) {
+      const res = await client.request<{ nextCursor: number; events: any[] }>({
+        id: newRequestId("diag-events"),
+        cmd: "events/get",
+        kind: "diagnostics",
+        since,
+        limit: 200
+      });
+      since = typeof res.nextCursor === "number" ? res.nextCursor : since;
+
+      for (const event of res.events ?? []) {
+        const payload = daemonEventPayload(event);
+        if (String(payload?.uri ?? "") !== uri) continue;
+        const diagnostics = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
+        return diagnosticReportFromPublishDiagnostics(diagnostics);
+      }
+
+      if (Date.now() >= deadline) break;
+      await sleep(25);
+    }
+
+    return diagnosticReportFromPublishDiagnostics([]);
   }
 }
 
@@ -2286,6 +2369,7 @@ program
       "",
       "NOTES:",
       "  - Sends textDocument/diagnostic and returns the raw DocumentDiagnosticReport.",
+      "  - If a server does not support textDocument/diagnostic, falls back to publishDiagnostics.",
       "  - The server may return {kind:\"full\", items:[...]} or {kind:\"unchanged\", resultId:\"...\"}.",
       "",
       "EXAMPLES:",
@@ -2321,6 +2405,7 @@ program
       ...(identifier ? { identifier } : {}),
       ...(previousResultId ? { previousResultId } : {})
     };
+    const waitMs = parseIntStrict(String(opts.waitMs ?? profile.waitMs ?? "500"));
 
     const res = await withDaemonFallback(
       opts,
@@ -2328,19 +2413,13 @@ program
         const client = new LspClient({ rootPath: root, server: profile });
         await client.start();
         try {
-          await client.openTextDocument(abs);
-          return await client.request("textDocument/diagnostic", params);
+          return await requestDocumentDiagnosticsDirect(client, abs, uri, params, waitMs);
         } finally {
           await client.shutdown();
         }
       },
       async (client) => {
-        return await client.request({
-          id: newRequestId("diag"),
-          cmd: "lsp/request",
-          method: "textDocument/diagnostic",
-          params
-        });
+        return await requestDocumentDiagnosticsDaemon(client, uri, params, waitMs);
       }
     );
 

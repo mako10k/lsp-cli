@@ -78,6 +78,23 @@ test("cli diagnostics passes previousResultId", { timeout: 10_000 }, async () =>
   assert.equal(out.resultId, "mock-doc-result");
 });
 
+test("cli diagnostics falls back to publishDiagnostics when pull diagnostics are unsupported", { timeout: 10_000 }, async () => {
+  const { root, cfgPath } = await makeMockWorkspace("lsp-cli-diagnostics-publish-");
+  const file = path.join(root, "publish-only.ts");
+  await fs.writeFile(file, "const x = 1\n", "utf8");
+
+  const res = await runCli(["--root", root, "--server", "mock", "--config", cfgPath, "--format", "json", "--wait-ms", "500", "diagnostics", file], {
+    timeoutMs: 5000
+  });
+
+  assert.equal(res.code, 0, res.stderr);
+
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.kind, "full");
+  assert.equal(out.items[0]?.source, "mock-publish");
+  assert.equal(out.items[0]?.message, "mock publish diagnostic");
+});
+
 test("cli workspace-diagnostics returns WorkspaceDiagnosticReport", { timeout: 10_000 }, async () => {
   const { root, cfgPath } = await makeMockWorkspace("lsp-cli-workspace-diagnostics-");
 

@@ -31,6 +31,7 @@
 ### Language Features
 
 - `completion`, `document-highlight`, `folding-ranges`, `selection-ranges`, `linked-editing-ranges`, `code-lenses`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`。
+- `diagnostics` は `textDocument/diagnostic` 未対応時に同一 document の `textDocument/publishDiagnostics` を待つ fallback を行う。
 - `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`。
 - `prepare-rename`, `did-change-configuration`, `did-save`。
 

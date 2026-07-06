@@ -218,7 +218,7 @@ npx @mako10k/lsp-cli --root samples/rust-basic symbols samples/rust-basic/src/ma
 # then pull diagnostics
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0
 
-# or request pull diagnostics directly
+# or request diagnostics directly; servers without textDocument/diagnostic fall back to publishDiagnostics
 npx @mako10k/lsp-cli --root samples/rust-basic diagnostics samples/rust-basic/src/main.rs
 npx @mako10k/lsp-cli --root samples/rust-basic workspace-diagnostics
 ```

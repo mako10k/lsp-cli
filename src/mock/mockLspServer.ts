@@ -46,8 +46,8 @@ function respond(id: number | string, result: any) {
   writeMessage(res);
 }
 
-function respondError(id: number | string, message: string) {
-  const res: JsonRpcResponse = { jsonrpc: "2.0", id, error: { code: -32603, message } };
+function respondError(id: number | string, message: string, code = -32603) {
+  const res: JsonRpcResponse = { jsonrpc: "2.0", id, error: { code, message } };
   writeMessage(res);
 }
 
@@ -412,6 +412,9 @@ async function onRequest(req: JsonRpcRequest) {
 
     case "textDocument/diagnostic": {
       const uri = typeof req.params?.textDocument?.uri === "string" ? req.params.textDocument.uri : "";
+      if (uri.includes("publish-only")) {
+        return respondError(req.id, "method not found", -32601);
+      }
       if (req.params?.previousResultId === "mock-doc-result") {
         return respond(req.id, {
           kind: "unchanged",
@@ -540,6 +543,26 @@ function onNotification(n: JsonRpcNotification) {
       return;
     case "textDocument/didOpen":
       lastDidOpen = n.params;
+      if (String(n.params?.textDocument?.uri ?? "").includes("publish-only")) {
+        writeMessage({
+          jsonrpc: "2.0",
+          method: "textDocument/publishDiagnostics",
+          params: {
+            uri: n.params.textDocument.uri,
+            diagnostics: [
+              {
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: 1 }
+                },
+                severity: 2,
+                source: "mock-publish",
+                message: "mock publish diagnostic"
+              }
+            ]
+          }
+        });
+      }
       return;
     case "textDocument/didChange":
       lastDidChange = n.params;
