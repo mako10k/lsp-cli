@@ -30,6 +30,7 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   assert.equal(init?.capabilities?.workspace?.workspaceEdit?.documentChanges, true);
   assert.deepEqual(init?.capabilities?.workspace?.workspaceEdit?.resourceOperations, ["create", "rename", "delete"]);
   assert.equal(init?.capabilities?.workspace?.workspaceEdit?.snippetEditSupport, undefined);
+  assert.equal(init?.capabilities?.workspace?.codeLens?.refreshSupport, false);
   assert.equal(init?.capabilities?.workspace?.diagnostics?.refreshSupport, false);
   assert.equal(init?.capabilities?.workspace?.foldingRange?.refreshSupport, false);
   assert.equal(init?.capabilities?.textDocument?.synchronization?.didSave, true);
@@ -46,6 +47,7 @@ test("LspClient works with mock server (initialize/open/didChange + basic reques
   assert.equal(init?.capabilities?.textDocument?.rename?.prepareSupport, true);
   assert.equal(init?.capabilities?.textDocument?.codeAction?.disabledSupport, true);
   assert.equal(init?.capabilities?.textDocument?.codeAction?.resolveSupport, undefined);
+  assert.deepEqual(init?.capabilities?.textDocument?.codeLens?.resolveSupport?.properties, ["command"]);
   assert.equal(init?.capabilities?.textDocument?.semanticTokens?.requests?.full?.delta, true);
   assert.deepEqual(init?.capabilities?.general?.positionEncodings, ["utf-16"]);
 

@@ -131,6 +131,29 @@ async function onRequest(req: JsonRpcRequest) {
       ]);
     }
 
+    case "textDocument/codeLens": {
+      return respond(req.id, [
+        {
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          },
+          data: { id: "mock-code-lens" }
+        }
+      ]);
+    }
+
+    case "codeLens/resolve": {
+      return respond(req.id, {
+        ...req.params,
+        command: {
+          title: "Mock CodeLens",
+          command: "mock/codeLens",
+          arguments: [req.params?.data?.id ?? "mock-code-lens"]
+        }
+      });
+    }
+
     case "textDocument/formatting": {
       const uri = req.params?.textDocument?.uri;
       // Minimal deterministic formatting: rewrite the whole document.

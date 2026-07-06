@@ -128,7 +128,7 @@ Edits and refactoring (mutating; dry-run by default):
 - `rename`, `code-actions`, `apply-edits`, `delete-symbol`
 
 Formatting, ranges, diagnostics, and tokens:
-- `format`, `format-range`, `completion`, `document-highlight`, `folding-ranges`, `selection-ranges`, `linked-editing-ranges`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`, `did-save`
+- `format`, `format-range`, `completion`, `document-highlight`, `folding-ranges`, `selection-ranges`, `linked-editing-ranges`, `code-lenses`, `diagnostics`, `workspace-diagnostics`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`, `did-save`
 
 Daemon and operations:
 - `daemon-status`, `daemon-stop`, `daemon-log`, `events`, `server-status`, `server-stop`, `server-restart`, `did-change-configuration`
@@ -168,6 +168,7 @@ Typical arguments are:
 - `folding-ranges <file>`
 - `selection-ranges <file> <line> <col> [--positions '<json>']`
 - `linked-editing-ranges <file> <line> <col>`
+- `code-lenses <file> [--resolve]`
 - `diagnostics <file> [--previous-result-id <id>]`
 - `workspace-diagnostics [--previous-result-ids '<json>']`
 - `inlay-hints <file> <startLine> <startCol> <endLine> <endCol>`

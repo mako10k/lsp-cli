@@ -534,7 +534,8 @@ function printHelpCommands(): void {
       "",
       "Formatting / ranges / diagnostics / tokens:",
       "  format  format-range  completion  document-highlight  folding-ranges",
-      "  selection-ranges  linked-editing-ranges  diagnostics  workspace-diagnostics",
+      "  selection-ranges  linked-editing-ranges  code-lenses",
+      "  diagnostics  workspace-diagnostics",
       "  inlay-hints  semantic-tokens-full  semantic-tokens-range  semantic-tokens-delta",
       "  prepare-rename  did-save",
       "  did-change-configuration",
@@ -1854,6 +1855,98 @@ program
           method: "textDocument/linkedEditingRange",
           params
         });
+      }
+    );
+
+    output({ format: opts.format, jq: opts.jq }, res);
+  });
+
+program
+  .command("code-lenses")
+  .description("textDocument/codeLens")
+  .argument("[file]", "file path, or '-' to read from stdin")
+  .option("--resolve", "resolve each CodeLens via codeLens/resolve")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "USAGE:",
+      "  lsp-cli code-lenses <file>",
+      "  lsp-cli code-lenses --resolve <file>",
+      "  lsp-cli code-lenses --stdin",
+      "",
+      "NOTES:",
+      "  - Sends textDocument/codeLens and returns raw CodeLens[].",
+      "  - --resolve additionally sends codeLens/resolve for each returned lens.",
+      "",
+      "EXAMPLES:",
+      "  lsp-cli --root samples/rust-basic code-lenses src/main.rs",
+      "  lsp-cli --root samples/rust-basic --jq '.[].command.title' code-lenses --resolve src/main.rs",
+      ""
+    ].join("\n")
+  )
+  .action(async (fileArg?: string, cmdOpts?: { resolve?: boolean }) => {
+    const opts = program.opts() as GlobalOpts;
+    const root = path.resolve(opts.root ?? process.cwd());
+    const profile = getServerProfile(opts.server, root, opts.config, opts.serverCmd);
+
+    let file = fileArg;
+    let shouldResolve = !!cmdOpts?.resolve;
+
+    if (opts.stdin) {
+      const params = JSON.parse(await readAllStdin()) as { file: string; resolve?: boolean };
+      file = params.file;
+      shouldResolve = !!params.resolve;
+    } else if (file === "-") {
+      file = (await readAllStdin()).trim();
+    }
+
+    if (!file) throw new Error("file is required (or use --stdin)");
+
+    const abs = path.resolve(file);
+    const uri = pathToFileUri(abs);
+
+    const res = await withDaemonFallback(
+      opts,
+      async () => {
+        const client = new LspClient({ rootPath: root, server: profile });
+        await client.start();
+        try {
+          await client.openTextDocument(abs);
+          const lenses = (await client.request("textDocument/codeLens", { textDocument: { uri } })) as any[] | null;
+          if (!shouldResolve || !Array.isArray(lenses)) return lenses;
+
+          const resolved = [];
+          for (const lens of lenses) {
+            resolved.push(await client.request("codeLens/resolve", lens));
+          }
+          return resolved;
+        } finally {
+          await client.shutdown();
+        }
+      },
+      async (client) => {
+        const lenses = (await client.request({
+          id: newRequestId("clens"),
+          cmd: "lsp/request",
+          method: "textDocument/codeLens",
+          params: { textDocument: { uri } }
+        })) as any[] | null;
+
+        if (!shouldResolve || !Array.isArray(lenses)) return lenses;
+
+        const resolved = [];
+        for (const lens of lenses) {
+          resolved.push(
+            await client.request({
+              id: newRequestId("clres"),
+              cmd: "lsp/request",
+              method: "codeLens/resolve",
+              params: lens
+            })
+          );
+        }
+        return resolved;
       }
     );
 

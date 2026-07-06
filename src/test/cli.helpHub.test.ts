@@ -52,6 +52,7 @@ test("cli per-command help includes appendices for common commands", async () =>
     "folding-ranges",
     "selection-ranges",
     "linked-editing-ranges",
+    "code-lenses",
     "diagnostics",
     "workspace-diagnostics",
     "inlay-hints",

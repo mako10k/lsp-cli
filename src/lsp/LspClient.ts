@@ -371,6 +371,9 @@ export function defaultClientCapabilities(): ClientCapabilities {
       symbol: {
         dynamicRegistration: false
       },
+      codeLens: {
+        refreshSupport: false
+      },
       diagnostics: {
         refreshSupport: false
       },
@@ -444,6 +447,10 @@ export function defaultClientCapabilities(): ClientCapabilities {
             ]
           }
         }
+      },
+      codeLens: {
+        dynamicRegistration: false,
+        resolveSupport: { properties: ["command"] }
       },
       completion: {
         dynamicRegistration: false,
