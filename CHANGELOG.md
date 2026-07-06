@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+### Added
+- Added daemon event kinds for `window/logMessage`, `window/showMessage`, and `$/progress`.
+
 ### Changed
 - Updated the LSP protocol/runtime baseline for Node 22/24 and `vscode-languageserver-protocol` 3.18.x.
 - Expanded default `initialize` client capabilities and added per-profile `clientCapabilities` overrides.
+- Made the Node test runner invocation explicit and documented the current requirements/backlog.
 
 ## 0.1.3 (2026-01-16)
 

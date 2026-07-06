@@ -217,6 +217,33 @@ async function onRequest(req: JsonRpcRequest) {
       return respond(req.id, { sent: true });
     }
 
+    case "mock/sendLogMessage": {
+      writeMessage({
+        jsonrpc: "2.0",
+        method: "window/logMessage",
+        params: req.params ?? { type: 3, message: "mock log" }
+      });
+      return respond(req.id, { sent: true });
+    }
+
+    case "mock/sendShowMessage": {
+      writeMessage({
+        jsonrpc: "2.0",
+        method: "window/showMessage",
+        params: req.params ?? { type: 3, message: "mock message" }
+      });
+      return respond(req.id, { sent: true });
+    }
+
+    case "mock/sendProgress": {
+      writeMessage({
+        jsonrpc: "2.0",
+        method: "$/progress",
+        params: req.params ?? { token: "mock", value: { kind: "begin", title: "mock progress" } }
+      });
+      return respond(req.id, { sent: true });
+    }
+
     case "textDocument/hover":
       return respond(req.id, {
         contents: {

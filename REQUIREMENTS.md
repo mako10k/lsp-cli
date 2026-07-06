@@ -1,139 +1,85 @@
-# LSPクライアント（軽量）要件/方式（たたき台）
+# lsp-cli 要件定義
 
 ## 1. 目的
-- 任意のLSPサーバの機能をCLIから呼び出し、**構造解析**（例: symbol/references 取得）や **リファクタリング**（例: rename/codeAction適用）を自動化できる軽量クライアントを作る。
-- まずは **rust-analyzer** を対象にMVPを作り、その後 **別言語(LSPサーバ)へ容易に切り替え**できる構成にする。
 
-## 2. スコープ（MVP案）
-### 2.1 最初に対応するLSPサーバ
-- rust-analyzer（stdio起動）
+`lsp-cli` は、任意の Language Server Protocol (LSP) サーバを CLI から操作し、構造解析、参照探索、整形、リファクタリング、WorkspaceEdit 適用を自動化する軽量クライアントである。主対象は `rust-analyzer` だが、サーバプロファイルにより `typescript-language-server` などへ差し替え可能にする。
 
-### 2.2 最初に提供するコマンド（案）
-- `lsp-cli ping` : initialize/initialized/shutdown の疎通
-- `lsp-cli symbols <file>` : `textDocument/documentSymbol`
-- `lsp-cli references <file> <line> <col>` : `textDocument/references`
-- `lsp-cli rename <file> <line> <col> <newName>` : `textDocument/rename`（WorkspaceEdit適用）
-- `lsp-cli code-actions <file> <range>` : `textDocument/codeAction`（一覧/適用）
+## 2. 現行スコープ
 
-※ 出力は `--format json|pretty` で選択できる（デフォルト: json）。
+- Runtime: Node.js 22 以上、TypeScript。
+- LSP transport: stdio JSON-RPC。
+- Protocol baseline: LSP 3.18 系を意識した保守的な `initialize` client capabilities。
+- Workspace: 単一 `--root`。位置指定は LSP 準拠の 0-based `line` / `col`。
+- Execution model: daemon-first。通常コマンドは daemon 接続を試し、必要なら自動起動し、失敗時は直接 stdio 実行へ fallback する。
+- Safety: ファイル変更は dry-run 既定。`--apply` 指定時のみ書き込む。
 
-## 3. 非スコープ（当面やらない）
-- エディタ統合（VSCode等）
-- 複雑なプロジェクト自動検出（必要最小限に留める）
+## 3. 実装済み機能
 
-※ 方針更新: 単発CLIの起動コスト削減と通知(PUSH)の取り回しのため、「常駐デーモン」をスコープに含める。
+### Core / Navigation
 
-## 4. 方式（アーキテクチャ）
-### 4.1 構成方針
-- **LSPコア**（JSON-RPC / メッセージフレーミング / stdio transport / request管理）と、
-  **サーバプロファイル**（起動コマンド、initialize options、languageId判定等）を分離する。
-- LSPサーバの差し替えは「プロファイル追加」で完結させる（可能な限り）。
+- `ping`: initialize/shutdown 疎通。
+- `symbols`, `references`, `definition`, `type-definition`, `implementation`, `hover`, `signature-help`, `ws-symbols`。
+- daemon-only 実験コマンド: `symbols-daemon`, `references-daemon`, `definition-daemon`, `hover-daemon`, `signature-help-daemon`, `ws-symbols-daemon`。
 
-### 4.1.1 新アーキテクチャ: daemon(常駐) + client(単発)
-- 目的:
-  - 毎回の `initialize/initialized` 等のオーバーヘッド削減（同一rootでセッションを再利用）
-  - サーバからの通知(PUSH)を「CLIの同期I/Oモデル」に無理に混ぜず、**イベントとして分離**する
-- 方式:
-  - `lsp-cli daemon` が LSP サーバ（stdio）に接続して常駐する
-  - `lsp-cli <command>` は daemon に接続して request/response を行う（既存のCLI I/Fを基本踏襲）
-  - daemon は LSP 通知を受け取り、ローカルにキューして **pull型** で取得できるようにする
+### Edits / Refactoring
 
-### 4.2 LSPコア（共通）
-- transport: stdio
-- protocol: JSON-RPC 2.0 + LSP framing（`Content-Length`）
-- 主要責務:
-  - サーバ起動/終了（initialize/initialized/shutdown/exit）
-  - request id の採番と response の待ち合わせ
-  - `workspace/applyEdit` を受け取る/自前で適用する方針は後述
+- `rename`, `code-actions`, `delete-symbol`, `apply-edits`。
+- `format`, `format-range`。
+- WorkspaceEdit は `changes` と `documentChanges` を扱い、create/rename/delete file operations も適用する。
+- `--save-after-apply` と `--wait-diagnostics-ms` により、適用後の `didSave` と diagnostics 収集を明示的に要求できる。
 
-#### 4.2.1 通知(PUSH)の扱い: events として分離
-- クライアント側が LSP 通知をリアルタイムに扱う代わりに、daemon が通知を受けて蓄積する。
-- CLI は `events` コマンドでイベントを取得する（種類フィルタ付き）。
-- 例（対象通知の候補）:
-  - `textDocument/publishDiagnostics`（構文エラー等）
-  - `window/logMessage` / `window/showMessage`
-  - `$/progress`
+### Language Features
 
-### 4.3 ワークスペース/ファイル管理（共通）
-- `--root <path>` を基本にし、未指定なら `cwd` をroot扱い。
-- ファイル入力は原則パス、位置指定は (line, col) で受ける（0/1-indexは要統一）。
-- `textDocument/didOpen` は必要なファイルのみ送る（MVPはオンデマンド）。
+- `completion`, `document-highlight`, `inlay-hints`。
+- `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`。
+- `prepare-rename`, `did-change-configuration`, `did-save`。
 
-#### 4.3.1 daemon endpoint の配置（推奨）
-- 基本要件: **workspace(root)ごとに独立**し、かつリポジトリを汚さない。
-- 推奨配置（デフォルト）:
-  - `$XDG_RUNTIME_DIR/lsp-cli/<hash(root)>/sock`（なければ `os.tmpdir()` 配下に同様）
-  - `hash(root)` は realpath(root) 等の安定な値から導出する
-- オプション配置（必要なら）:
-  - `<root>/.lsp-cli/sock`（ただし `/.lsp-cli/` を `.gitignore` で無視する前提）
+### Daemon / Operations
 
-### 4.4 変更適用（WorkspaceEdit）
-- リファクタ結果は LSP の `WorkspaceEdit`（主に `changes` / `documentChanges`）を解釈して適用。
-- 安全のためデフォルトは `--dry-run`（差分表示/JSON）で、`--apply` 明示時のみ書き込み。
+- `daemon-status`, `daemon-stop`, `daemon-log`。
+- `server-status`, `server-stop`, `server-restart`。
+- `events --kind diagnostics|log|message|progress`: daemon が受け取った `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, `$/progress` を cursor 付きで pull 取得する。
+- `daemon-request`: daemon 経由で任意 LSP request を送る。
+- `batch`: JSONL 入力を同一 LSP セッション内で逐次実行する。
 
-#### 4.4.1 変更適用コマンド（追加）
-- `apply-edits`（仮）: `TextEdit` / `WorkspaceEdit` の適用を明示的に行う。
-  - `--apply` 指定時のみ書き換え（デフォルトはdry-runでプレビュー）
-  - daemon経由の適用と、単発(従来)の適用の両方を許容
+## 4. 設定要件
 
-### 4.5 サーバプロファイル（差し替えポイント）
-プロファイルが持つ情報（案）:
-- `name`（例: `rust-analyzer`）
-- 起動コマンド（例: `rust-analyzer` or `rust-analyzer --stdio`）
-- `initialize` パラメータ差分
-  - `rootUri` / `workspaceFolders`
-  - `initializationOptions`（必要なら）
-  - `capabilities`（基本は汎用テンプレ）
-- languageId 判定（拡張子→languageId。例: `.rs`→`rust`）
+設定ファイルは `<root>/.lsp-cli.json` または `<root>/lsp-cli.config.json` を自動探索し、`--config <path>` で明示指定できる。
 
-## 5. rust-analyzer プロファイル（MVP想定）
-- 起動: `rust-analyzer`（stdio）
-- ルート: Cargo workspace を想定（ただし root はユーザ指定優先）
-- 最小 initialize:
-  - `rootUri` or `workspaceFolders`
-  - `capabilities.textDocument.rename` 等を有効
+- `presets`: 再利用可能なサーバ設定。
+- `servers`: custom server profile と built-in profile override。
+- `augment`: built-in/custom profile に重ねる追加設定。
+- per-server fields: `command`, `args`, `initializationOptions`, `languageIdByExt`, `defaultLanguageId`, `cwd`, `env`, `waitMs`, `warmup`, `clientCapabilities`。
+- `clientCapabilities` は既定 capability に deep merge し、サーバごとに advertised support を狭める用途で使う。
 
-## 6. CLI（たたき台）
-- `lsp-cli --server rust-analyzer --root . <subcommand> ...`
-- サーバ差し替えの基本は `--server` と `--server-cmd`（上書き）で実現
-  - 例: `lsp-cli --server rust-analyzer --server-cmd "rust-analyzer" ping`
-- パイプ連携のため、入力/出力の補助を持つ
-  - 入力: `<file>` に `-` を指定するとstdinからファイルパスを読む
-  - 入力: `--stdin` でstdinからJSONを読んでコマンド引数を与える
-  - 出力: `--jq '<filter>'` でJSON出力を `jq` に通して抽出/整形できる（`jq` がPATHに必要）
+## 5. アーキテクチャ
 
-### 6.1 追加コマンド案（daemon運用）
-- daemon起動:
-  - 明示的な `daemon start` コマンドは持たず、CLIが必要に応じて **暗黙に起動**する（daemon優先→失敗時フォールバック）
-- `events`:
-  - daemonが蓄積した通知イベントを取得する
-  - 例: `--kind diagnostics|log|progress` のような種類別フィルタ
-  - 例: `--since <cursor>` により差分取得（カーソルは単調増加IDを想定）
-- `server-status`:
-  - daemon内のLSPサーバ状態を返す（runningなど）
-- `server-stop` / `server-restart`:
-  - `server-stop`: daemonは生存したまま **LSPセッションのみ停止**する（この後、通常のコマンド実行で必要なら自動的に起動される）
-  - `server-restart`: LSPセッションを **initializeからやり直す**（停止中でも実行できる）
-  - クライアントから安全にトリガできるようにする
-- `daemon-stop`:
-  - daemonプロセスを停止する
+- `src/cli.ts`: Commander ベースの CLI entrypoint。
+- `src/lsp/LspClient.ts`: LSP process 起動、JSON-RPC connection、document sync、request/notification handling。
+- `src/lsp/workspaceEdit.ts`: WorkspaceEdit の preview/apply 共通処理。
+- `src/daemon/`: UDS JSONL daemon、イベントキュー、daemon/server 操作。
+- `src/servers/`: built-in/custom server profile 解決。
+- `src/mock/mockLspServer.ts`: hermetic integration tests 用 mock LSP server。
 
-## 7. 合意事項（2026-01-15）
-- 実装言語: **Node.js + TypeScript**（LSP/JSON-RPC周りのSDKが充実しているため。例: `vscode-jsonrpc`）
-- 出力: `--format json|pretty` で切替
-- 位置指定: **LSP準拠の0-based**（CLIヘルプに明記）
-- 変更適用: **`--dry-run` デフォルト**（`--apply` 明示時のみ書き込み）
-- 対象範囲: **単一root**（`--root`）
+## 6. 品質・検証要件
 
-## 8. マイルストーン（案）
-- M0: `ping` + initialize/shutdown
-- M1: `documentSymbol` / `references`（read-only）
-- M2: `rename`（WorkspaceEditのdry-run/適用）
-- M3: `codeAction` 一覧 + 1件適用
-- M4: プロファイル追加で別LSP（例: pyright/gopls）に切替できることを確認
+- `npm run typecheck`: TypeScript 型検査。
+- `npm run build`: `src/` から `dist/` へ compile。
+- `npm run test:unit`: build 済み `dist/test/**/*.test.js` を Node test runner で実行。
+- `npm test`: build 後に `test:unit` を実行。
+- CI は Node 22 / 24 matrix で `npm ci`, `typecheck`, `build`, `test:unit` を実行する。
 
-## 9. マイルストーン（daemon化）
-- D0: `daemon` 起動 + `request` 経由で `initialize` は一度だけ
-- D1: `events` で `publishDiagnostics` 等をpull型で取得
-- D2: `server restart/stop` を追加
-- D3: `apply-edits` を追加（dry-run/適用）
+## 7. 非スコープ
+
+- エディタ統合。
+- multi-root workspace。
+- dynamic registration の完全対応。
+- `SnippetTextEdit` の apply 対応。未対応のため既定 capability では `snippetEditSupport` を広告しない。
+- 任意のサーバ固有 protocol extension の専用 UI。
+
+## 8. Backlog
+
+- pull diagnostics (`textDocument/diagnostic`, `workspace/diagnostic`) の専用コマンド化。
+- `codeLens`, `selectionRange`, `foldingRange`, `linkedEditingRange` の専用コマンド化。
+- daemon event queue の保持上限と永続化方針。
+- release workflow と CHANGELOG/version bump の自動化。

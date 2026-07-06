@@ -86,6 +86,18 @@ export class LspClient {
       }
     });
 
+    this.conn.onUnhandledProgress((params: any) => {
+      const handlers = this.notificationHandlers.get("$/progress");
+      if (!handlers) return;
+      for (const h of handlers) {
+        try {
+          h(params);
+        } catch {
+          // ignore
+        }
+      }
+    });
+
     this.conn.onRequest("workspace/applyEdit", async (params: any) => {
       const manual = this.requestHandlers.get("workspace/applyEdit");
       if (manual) return await manual(params);

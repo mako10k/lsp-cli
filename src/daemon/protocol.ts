@@ -1,9 +1,11 @@
+import type { EventKind } from "./events";
+
 export type DaemonRequest =
   | { id: string; cmd: "ping" }
   | { id: string; cmd: "daemon/status" }
   | { id: string; cmd: "daemon/log/get" }
   | { id: string; cmd: "daemon/log/set"; mode: "discard" | "file"; path?: string }
-  | { id: string; cmd: "events/get"; kind?: "diagnostics"; since?: number; limit?: number }
+  | { id: string; cmd: "events/get"; kind?: EventKind; since?: number; limit?: number }
   | { id: string; cmd: "lsp/request"; method: string; params?: any }
   | { id: string; cmd: "lsp/notify"; method: string; params?: any }
   | { id: string; cmd: "lsp/requestAndApply"; method: string; params?: any }

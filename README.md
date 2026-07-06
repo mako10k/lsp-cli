@@ -1,6 +1,6 @@
 # lsp-cli
 
-A lightweight CLI client to drive arbitrary LSP servers for structural analysis and refactoring (MVP: rust-analyzer).
+A lightweight CLI client to drive LSP servers for structural analysis, navigation, formatting, and refactoring automation.
 
 ## Table of contents
 
@@ -42,11 +42,15 @@ npx @mako10k/lsp-cli --root . --format pretty symbols path/to/file.rs
 ```bash
 npm install
 npm run build
+npm run typecheck
+npm test
 
 # Install the repo locally as a CLI (provides the lsp-cli command)
 npm link
 lsp-cli --help
 ```
+
+`npm test` builds first, then runs `npm run test:unit` with an explicit Node test runner configuration. Use `npm run test:unit` when `dist/` is already current.
 
 ## Sample (for testing)
 
@@ -73,7 +77,7 @@ npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 def
 # hover
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 hover samples/rust-basic/src/main.rs 8 12
 
-# signature help (somewhere inside add()
+# signature help (somewhere inside add())
 npx @mako10k/lsp-cli --root samples/rust-basic --format pretty --wait-ms 500 signature-help samples/rust-basic/src/main.rs 8 16
 
 # workspace symbols
@@ -124,7 +128,7 @@ Edits and refactoring (mutating; dry-run by default):
 - `rename`, `code-actions`, `apply-edits`, `delete-symbol`
 
 Formatting and tokens:
-- `format`, `format-range`, `completion`, `document-highlight`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`
+- `format`, `format-range`, `completion`, `document-highlight`, `inlay-hints`, `semantic-tokens-full`, `semantic-tokens-range`, `semantic-tokens-delta`, `prepare-rename`, `did-save`
 
 Daemon and operations:
 - `daemon-status`, `daemon-stop`, `daemon-log`, `events`, `server-status`, `server-stop`, `server-restart`, `did-change-configuration`
@@ -166,6 +170,7 @@ Typical arguments are:
 - `semantic-tokens-range <file> <startLine> <startCol> <endLine> <endCol>`
 - `semantic-tokens-delta <file>`
 - `prepare-rename <file> <line> <col>`
+- `did-save <file> [--wait-diagnostics-ms <ms>]`
 - `did-change-configuration --settings '<json>'` (or `--stdin`)
 
 ### Daemon and operations
@@ -174,7 +179,7 @@ Typical arguments are:
 - `server-status`: whether in-daemon LSP is running
 - `server-stop` / `server-restart`: stop/restart only the in-daemon LSP session
 - `daemon-stop`: stop the daemon process itself
-- `events --kind diagnostics --since <cursor> --limit <n>`: pull-based notifications
+- `events --kind diagnostics|log|message|progress --since <cursor> --limit <n>`: pull-based notifications
 - `daemon-log [discard|default|<path>]`: get/set daemon log sink
 
 ### Batch mode
@@ -228,7 +233,7 @@ By default, many commands try: daemon → auto-start daemon → fallback to dire
 
 ### Events (pull-based notifications)
 
-The daemon stores notifications like `textDocument/publishDiagnostics` and exposes them via `events`.
+The daemon stores notifications like `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, and `$/progress`, then exposes them via `events`.
 
 ### Dry-run vs --apply
 
@@ -236,11 +241,14 @@ Commands that can modify files are **dry-run by default**. To actually write fil
 
 ### Daemon events (pull-based)
 
-The daemon accumulates notifications such as `textDocument/publishDiagnostics`, and you can fetch them via `events`.
+The daemon accumulates notifications such as `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, and `$/progress`, and you can fetch them via `events`.
 
 ```bash
 # Fetch diagnostics (raw JSON)
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics
+
+# Fetch server log messages
+npx @mako10k/lsp-cli --root samples/rust-basic events --kind log
 
 # Fetch deltas using a cursor (pass the previous cursor via --since)
 npx @mako10k/lsp-cli --root samples/rust-basic events --kind diagnostics --since 0

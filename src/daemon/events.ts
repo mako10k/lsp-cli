@@ -1,4 +1,4 @@
-export type EventKind = "diagnostics";
+export type EventKind = "diagnostics" | "log" | "message" | "progress";
 
 export type DaemonEvent = {
   cursor: number;

@@ -67,9 +67,7 @@ export class DaemonServer {
     this.client = new LspClient({ rootPath: this.rootPath, server: profile });
     await this.client.start();
 
-    this.client.onNotification("textDocument/publishDiagnostics", (params) => {
-      this.events.push("diagnostics", params);
-    });
+    this.attachEventNotifications(this.client);
 
     // Default: discard logs. The client can switch via daemon/log/set.
     // (Future) We may log server stderr here if needed.
@@ -253,16 +251,28 @@ export class DaemonServer {
         }
         this.client = new LspClient({ rootPath: this.rootPath, server: profile });
         await this.client.start();
-
-        this.client.onNotification("textDocument/publishDiagnostics", (params) => {
-          this.events.push("diagnostics", params);
-        });
+        this.attachEventNotifications(this.client);
         return { restarted: true };
       }
 
       default:
         throw new Error(`unsupported cmd: ${(req as any).cmd}`);
     }
+  }
+
+  private attachEventNotifications(client: LspClient): void {
+    client.onNotification("textDocument/publishDiagnostics", (params) => {
+      this.events.push("diagnostics", params);
+    });
+    client.onNotification("window/logMessage", (params) => {
+      this.events.push("log", params);
+    });
+    client.onNotification("window/showMessage", (params) => {
+      this.events.push("message", params);
+    });
+    client.onNotification("$/progress", (params) => {
+      this.events.push("progress", params);
+    });
   }
 
   private async maybeSyncTextDocumentForRequest(method: string, params: any): Promise<void> {

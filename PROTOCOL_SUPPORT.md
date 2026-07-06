@@ -34,7 +34,10 @@ Legend:
 | Server control | Stop LSP | `server-stop` | ✅ | Stops only the LSP while keeping the daemon alive |
 | Server control | Restart LSP | `server-restart` | ✅ | Restarts from initialize |
 | Server status | Check LSP health | `server-status` | ✅ | Status of the in-daemon LSP instance |
-| Events | publishDiagnostics (notification) | `events` | 🟡 | Exposes notifications as pull-based events (daemon-specific) |
+| Events | `textDocument/publishDiagnostics` notification | `events --kind diagnostics` | 🟡 | Exposes notifications as pull-based events (daemon-specific) |
+| Events | `window/logMessage` notification | `events --kind log` | ✅ | Pulls daemon-buffered server log messages |
+| Events | `window/showMessage` notification | `events --kind message` | ✅ | Pulls daemon-buffered server messages |
+| Events | `$/progress` notification | `events --kind progress` | ✅ | Pulls daemon-buffered work progress notifications |
 | Document symbols | `textDocument/documentSymbol` | `symbols` | ✅ | Daemon-first + fallback |
 | Document symbols | `textDocument/documentSymbol` | `symbols-daemon` | ✅ | Daemon-only (marked experimental) |
 | References | `textDocument/references` | `references` | ✅ | Daemon-first + fallback |
@@ -66,6 +69,7 @@ Legend:
 | Semantic tokens | `textDocument/semanticTokens/range` | `semantic-tokens-range` | ✅ | Raw tokens |
 | Semantic tokens | `textDocument/semanticTokens/full/delta` | `semantic-tokens-delta` | ✅ | Raw delta tokens |
 | Workspace | `workspace/didChangeConfiguration` | `did-change-configuration` | ✅ | Sends notification (daemon-first where supported) |
+| Text document | `textDocument/didSave` | `did-save` | ✅ | Sends notification; can wait for diagnostics |
 | Rename | `textDocument/prepareRename` | `prepare-rename` | ✅ | Returns range/placeholder |
 
 ---

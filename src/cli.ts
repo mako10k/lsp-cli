@@ -13,6 +13,7 @@ import { pathToFileUri } from "./util/paths";
 import { runDaemonMain } from "./daemon/daemonMain";
 import { DaemonClient } from "./daemon/DaemonClient";
 import { newRequestId } from "./daemon/protocol";
+import type { EventKind } from "./daemon/events";
 import { resolveDaemonEndpoint } from "./util/endpoint";
 import { spawnDaemonDetached } from "./daemon/autostart";
 
@@ -66,6 +67,10 @@ function resolveCliEntrypointPath(): string {
 
   // Node's test runner sets argv[1] to the test file, so prefer the known dist path.
   return path.resolve(__dirname, "cli.js");
+}
+
+function daemonEventPayload(event: any): any {
+  return event?.payload ?? event?.params;
 }
 
 async function withDaemonClient<T>(opts: GlobalOpts, fn: (client: DaemonClient, socketPath: string, defaultLogPath: string) => Promise<T>): Promise<T> {
@@ -667,8 +672,8 @@ program
 
 program
   .command("events")
-  .description("Pull events from daemon (e.g. diagnostics).")
-  .option("--kind <kind>", "event kind (diagnostics)", "diagnostics")
+  .description("Pull events from daemon (e.g. diagnostics/log/message/progress).")
+  .option("--kind <kind>", "event kind (diagnostics|log|message|progress)", "diagnostics")
   .option("--since <cursor>", "only return events after cursor", "0")
   .option("--limit <n>", "max events to return (1-1000)", "200")
   .addHelpText(
@@ -676,21 +681,23 @@ program
     [
       "",
       "USAGE:",
-      "  lsp-cli events --kind diagnostics [--since <cursor>] [--limit <n>]",
+      "  lsp-cli events --kind diagnostics|log|message|progress [--since <cursor>] [--limit <n>]",
       "",
       "NOTES:",
-      "  - Pull-based: daemon buffers server notifications (e.g. publishDiagnostics).",
+      "  - Pull-based: daemon buffers server notifications (diagnostics, log/show messages, progress).",
       "  - Use the returned cursor to incrementally fetch new events.",
       "",
       "EXAMPLES:",
       "  lsp-cli --root samples/rust-basic events --kind diagnostics --since 0",
+      "  lsp-cli --root samples/rust-basic events --kind log --since 0",
       ""
     ].join("\n")
   )
   .action(async (cmdOpts) => {
     const opts = program.opts() as GlobalOpts;
     const kind = String(cmdOpts.kind ?? "diagnostics");
-    if (kind !== "diagnostics") throw new Error(`unsupported kind: ${kind}`);
+    if (!["diagnostics", "log", "message", "progress"].includes(kind)) throw new Error(`unsupported kind: ${kind}`);
+    const eventKind = kind as EventKind;
 
     const since = parseIntStrict(String(cmdOpts.since ?? "0"));
     const limit = parseIntStrict(String(cmdOpts.limit ?? "200"));
@@ -699,7 +706,7 @@ program
       return await client.request({
         id: newRequestId("events"),
         cmd: "events/get",
-        kind: "diagnostics",
+        kind: eventKind,
         since,
         limit
       });
@@ -1209,9 +1216,10 @@ program
               limit: 200
             });
             since = r.nextCursor;
-            const hit = (r.events ?? []).find((e) => String(e?.params?.uri ?? "") === uri);
+            const hit = (r.events ?? []).find((e) => String(daemonEventPayload(e)?.uri ?? "") === uri);
             if (hit) {
-              const diags = Array.isArray(hit?.params?.diagnostics) ? hit.params.diagnostics : [];
+              const payload = daemonEventPayload(hit);
+              const diags = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
               return { applied: true, diagnostics: { [uri]: diags } };
             }
             await sleep(25);
@@ -1304,9 +1312,10 @@ program
               limit: 200
             });
             since = r.nextCursor;
-            const hit = (r.events ?? []).find((e) => String(e?.params?.uri ?? "") === uri);
+            const hit = (r.events ?? []).find((e) => String(daemonEventPayload(e)?.uri ?? "") === uri);
             if (hit) {
-              const diags = Array.isArray(hit?.params?.diagnostics) ? hit.params.diagnostics : [];
+              const payload = daemonEventPayload(hit);
+              const diags = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
               return { notified: true, diagnostics: { [uri]: diags } };
             }
             await sleep(25);
@@ -3410,9 +3419,10 @@ program
                   });
                   since = r.nextCursor;
                   for (const e of r.events ?? []) {
-                    const eUri = String(e?.params?.uri ?? "");
+                    const payload = daemonEventPayload(e);
+                    const eUri = String(payload?.uri ?? "");
                     if (affectedUris.includes(eUri)) {
-                      collected[eUri] = Array.isArray(e?.params?.diagnostics) ? e.params.diagnostics : [];
+                      collected[eUri] = Array.isArray(payload?.diagnostics) ? payload.diagnostics : [];
                     }
                   }
                   await sleep(25);
