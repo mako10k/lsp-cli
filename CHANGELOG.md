@@ -10,6 +10,7 @@
 - Added `diagnostics` and `workspace-diagnostics` commands for LSP pull diagnostics.
 
 ### Changed
+- Daemon event queues are now bounded in memory and report cursor truncation metadata.
 - Updated the LSP protocol/runtime baseline for Node 22/24 and `vscode-languageserver-protocol` 3.18.x.
 - Expanded default `initialize` client capabilities and added per-profile `clientCapabilities` overrides.
 - Made the Node test runner invocation explicit and documented the current requirements/backlog.

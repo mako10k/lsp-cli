@@ -92,3 +92,4 @@ Even if the server supports these, the CLI currently has no dedicated command fo
 
 - The `*-daemon` commands such as `symbols-daemon` are “daemon-only”, but in normal usage the non-suffixed commands such as `symbols` run daemon-first.
 - `implementation` / `type-definition` run daemon-first (and fall back to direct stdio when needed).
+- Daemon events are kept in a bounded in-memory queue of 1000 events. Results expose `truncated` and `droppedBeforeCursor` when a requested cursor is older than the retained window.

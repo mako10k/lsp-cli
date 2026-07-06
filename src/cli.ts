@@ -704,6 +704,8 @@ program
       "",
       "NOTES:",
       "  - Pull-based: daemon buffers server notifications (diagnostics, log/show messages, progress).",
+      "  - The daemon keeps a bounded in-memory queue (default 1000 events); daemon restart clears it.",
+      "  - If older events were dropped, the result includes truncated=true and droppedBeforeCursor.",
       "  - Use the returned cursor to incrementally fetch new events.",
       "",
       "EXAMPLES:",

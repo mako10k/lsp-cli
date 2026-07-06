@@ -39,6 +39,7 @@
 - `daemon-status`, `daemon-stop`, `daemon-log`。
 - `server-status`, `server-stop`, `server-restart`。
 - `events --kind diagnostics|log|message|progress`: daemon が受け取った `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, `$/progress` を cursor 付きで pull 取得する。
+- daemon event queue は既定で 1000 件をメモリ内保持し、永続化しない。古い cursor の取り逃しは `truncated` / `droppedBeforeCursor` で通知する。
 - `daemon-request`: daemon 経由で任意 LSP request を送る。
 - `batch`: JSONL 入力を同一 LSP セッション内で逐次実行する。
 
@@ -79,5 +80,4 @@
 
 ## 8. Backlog
 
-- daemon event queue の保持上限と永続化方針。
 - release workflow と CHANGELOG/version bump の自動化。

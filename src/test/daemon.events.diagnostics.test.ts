@@ -150,3 +150,75 @@ test("daemon events can pull log, message, and progress notifications", { timeou
     await daemon.stop();
   }
 });
+
+test("daemon events report queue truncation metadata", { timeout: 10_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lsp-cli-daemon-events-cap-"));
+
+  const serverScript = path.resolve(__dirname, "../mock/mockLspServer.js");
+  const cfgPath = path.join(root, "lsp-cli.config.json");
+  await fs.writeFile(
+    cfgPath,
+    JSON.stringify(
+      {
+        servers: {
+          mock: {
+            command: process.execPath,
+            args: [serverScript],
+            defaultLanguageId: "plaintext"
+          }
+        }
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  const daemon = new DaemonServer({ rootPath: root, serverName: "mock", configPath: cfgPath, eventQueueMaxEvents: 2 });
+  await daemon.start();
+
+  const client = await DaemonClient.connect(daemon.getSocketPath());
+  try {
+    for (const message of ["one", "two", "three"]) {
+      await client.request({
+        id: newRequestId("log"),
+        cmd: "lsp/request",
+        method: "mock/sendLogMessage",
+        params: { type: 3, message }
+      });
+    }
+
+    await eventually(1000, 25, async () => {
+      const got = await client.request<{ events: any[]; truncated: boolean }>({ id: newRequestId("ev-log"), cmd: "events/get", kind: "log", since: 0, limit: 10 });
+      return got.truncated && got.events.length === 2;
+    });
+
+    const res = await client.request<{
+      nextCursor: number;
+      events: any[];
+      oldestCursor: number;
+      newestCursor: number;
+      retainedCount: number;
+      maxEvents: number;
+      droppedCount: number;
+      truncated: boolean;
+      droppedBeforeCursor: number;
+    }>({ id: newRequestId("ev-log"), cmd: "events/get", kind: "log", since: 0, limit: 10 });
+
+    assert.equal(res.truncated, true);
+    assert.equal(res.droppedBeforeCursor, 2);
+    assert.equal(res.oldestCursor, 2);
+    assert.equal(res.newestCursor, 3);
+    assert.equal(res.retainedCount, 2);
+    assert.equal(res.maxEvents, 2);
+    assert.equal(res.droppedCount, 1);
+    assert.equal(res.nextCursor, 3);
+    assert.deepEqual(
+      res.events.map((e) => e.payload.message),
+      ["two", "three"]
+    );
+  } finally {
+    client.close();
+    await daemon.stop();
+  }
+});

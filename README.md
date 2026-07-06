@@ -252,6 +252,7 @@ Commands that can modify files are **dry-run by default**. To actually write fil
 ### Daemon events (pull-based)
 
 The daemon accumulates notifications such as `textDocument/publishDiagnostics`, `window/logMessage`, `window/showMessage`, and `$/progress`, and you can fetch them via `events`.
+Events are kept in a bounded in-memory queue of 1000 events. The queue is not persisted; stopping or restarting the daemon clears it. If a `--since` cursor is older than the retained window, the JSON result includes `truncated: true` and `droppedBeforeCursor` so callers can detect missed notifications.
 
 ```bash
 # Fetch diagnostics (raw JSON)

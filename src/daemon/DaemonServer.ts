@@ -18,6 +18,7 @@ export type DaemonServerOptions = {
   serverName: string;
   configPath?: string;
   serverCmd?: string;
+  eventQueueMaxEvents?: number;
 };
 
 export class DaemonServer {
@@ -33,13 +34,14 @@ export class DaemonServer {
 
   private client: LspClient | null = null;
   private readonly log = new DaemonLog();
-  private readonly events = new EventQueue();
+  private readonly events: EventQueue;
 
   constructor(opts: DaemonServerOptions) {
     this.rootPath = opts.rootPath;
     this.serverName = opts.serverName;
     this.configPath = opts.configPath;
     this.serverCmd = opts.serverCmd;
+    this.events = new EventQueue({ maxEvents: opts.eventQueueMaxEvents });
   }
 
   getSocketPath(): string {
